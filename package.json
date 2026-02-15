@@ -1,0 +1,19 @@
+{
+  "name": "sellembedded-chatbot",
+  "version": "1.1.2",
+  "description": "Build pipeline for the SellEmbedded chatbot assets.",
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && node scripts/build.js",
+    "package": "npm run build && node scripts/package.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "archiver": "^7.0.1",
+    "esbuild": "^0.27.0",
+    "rimraf": "^6.1.0"
+  }
+}

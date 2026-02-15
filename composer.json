@@ -1,0 +1,19 @@
+{
+  "name": "SellEmbedded/SellEmbedded-Chatbot",
+  "type": "wordpress-plugin",
+  "description": "Integrates with SellEmbedded Chatbot.",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "inpsyde/modularity": "^1.12.0"
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "autoload": {
+    "psr-4": {
+      "Avatar\\AvatarIntegration\\": "src/"
+    }
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
