@@ -1,0 +1,1014 @@
+/* Microphone Permission Modal */
+.mic-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 1000000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+
+.mic-modal-content {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
+    border-radius: 24px;
+    padding: 40px;
+    max-width: 450px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    text-align: center;
+    animation: slideUp 0.4s ease;
+}
+
+.mic-modal-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    animation: bounce 2s infinite;
+}
+
+.mic-modal-content h3 {
+    margin: 0 0 16px 0;
+    font-size: 24px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.mic-modal-content p {
+    margin: 0 0 24px 0;
+    font-size: 16px;
+    color: #555;
+    line-height: 1.6;
+}
+
+.mic-modal-buttons {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.mic-btn-primary,
+.mic-btn-secondary {
+    flex: 1;
+    padding: 14px 24px;
+    border-radius: 12px;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.mic-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.mic-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.mic-btn-secondary {
+    background: rgba(0, 0, 0, 0.05);
+    color: #555;
+}
+
+.mic-btn-secondary:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.mic-help-text {
+    padding: 16px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 12px;
+    margin-top: 16px;
+}
+
+.mic-help-text small {
+    font-size: 13px;
+    color: #667eea;
+    line-height: 1.5;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Updated: Floating button now 3x larger - 210px, avatar fills 99% of circle */
+#chatbox {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    width: 100%;
+    height: 415px;
+    max-width: 550px;
+    max-height: unset;
+    pointer-events: none; /* Let clicks pass through to button */
+}
+
+#chatbox.is-loading {
+    pointer-events: none;
+}
+
+#chatbox.is-loading::after {
+    content: 'Loading...';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 105;
+    background-color: rgba(0,0,0,0.4);
+    color: white;
+    font-weight: bold;
+    border-radius: 20px;
+    pointer-events: none; /* Don't block button */
+}
+
+#chatbox:not(.open) {
+    max-width: 210px;
+    max-height: 210px;
+    aspect-ratio: 1/1;
+    pointer-events: none; /* Let clicks pass through to button */
+}
+
+#chatbox__inner {
+    display: flex;
+    flex-direction: row;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    height: 415px;
+    pointer-events: auto; /* Inner content should be interactive when open */
+}
+
+#chatbox.open {
+    pointer-events: auto; /* When open, chatbox should be interactive */
+}
+
+#chatbox:not(.open) #chatbox__inner {
+    display: none;
+}
+
+#chatbox.open #start-button {
+    display: none;
+}
+
+#chatbox.open .lets-talk-text {
+    display: none;
+}
+
+/* Minimized state - shows only avatar with call status */
+#chatbox.minimized #chatbox__inner {
+    display: flex;
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+#chatbox.minimized .avatar-section {
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    position: relative;
+}
+
+#chatbox.minimized #chatbox video {
+    border-radius: 50%;
+}
+
+#chatbox.minimized #chatbox-controls {
+    display: none;
+}
+
+/* Call status - Hidden since we don't use minimized state */
+.call-status {
+    display: none !important;
+}
+
+.call-indicator {
+    width: 8px;
+    height: 8px;
+    background: #10b981;
+    border-radius: 50%;
+    animation: pulse-call 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-call {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+#start-button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    cursor: pointer;
+    width: 210px;
+    height: 210px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    /* ULTRA SIMPLE: Make button always clickable */
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent;
+    z-index: 10001 !important;
+}
+
+#start-button:disabled {
+    pointer-events: auto !important;
+    cursor: wait;
+    opacity: 0.7;
+}
+
+#start-button:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 12px 35px rgba(102, 126, 234, 0.6);
+}
+
+#start-button:hover .lets-talk-text {
+    background: rgba(0, 0, 0, 0.8);
+    transform: translateX(-50%) translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+#start-button:active {
+    transform: translateY(0) scale(0.95);
+    transition: all 0.1s ease;
+}
+
+#start-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
+    border-radius: 50%;
+    /* Critical: Don't block touch events on Android 15 */
+    pointer-events: none;
+    z-index: 0;
+}
+
+#start-button img {
+    width: 207px;
+    height: 207px;
+    border-radius: 50%;
+    object-fit: cover;
+    z-index: 1;
+    position: relative;
+    /* Don't block pointer events */
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.lets-talk-text {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    z-index: 2;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+    /* Don't block pointer events - let clicks pass through to button */
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#chatbox button {
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+/* Avatar/Video Section */
+.avatar-section {
+    position: relative;
+    width: 60%;
+    height: 415px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    flex-direction: column;
+    border-radius: 24px 0 0 24px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Video Container */
+.video-container {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 24px 0 0 0;
+    overflow: hidden;
+}
+
+#chatbox video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 24px 0 0 0;
+}
+
+.avatar-placeholder {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 48px;
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Audio Controls Section */
+.audio-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 12px;
+}
+
+.audio-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 12px;
+    font-weight: 500;
+    backdrop-filter: blur(10px);
+}
+
+.audio-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+}
+
+/* Hide voice button since we use continuous listening */
+#voice-button {
+    display: none;
+}
+
+/* Recording state */
+.audio-btn.recording {
+    background: rgba(255, 99, 99, 0.3);
+    border-color: rgba(255, 99, 99, 0.6);
+    box-shadow: 0 0 20px rgba(255, 99, 99, 0.4);
+    animation: pulse-recording 1s ease-in-out infinite;
+}
+
+.audio-btn.recording .btn-text {
+    color: #ff6363;
+}
+
+/* Muted state */
+.audio-btn.muted {
+    background: rgba(255, 193, 7, 0.3);
+    border-color: rgba(255, 193, 7, 0.6);
+}
+
+.audio-btn.muted .btn-text {
+    color: #ffc107;
+}
+
+/* Pulse animation for recording */
+@keyframes pulse-recording {
+    0% {
+        box-shadow: 0 0 20px rgba(255, 99, 99, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(255, 99, 99, 0.8);
+    }
+    100% {
+        box-shadow: 0 0 20px rgba(255, 99, 99, 0.4);
+    }
+}
+
+
+.mic-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.audio-visualizer {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 30px;
+    flex: 1;
+    justify-content: center;
+}
+
+.visualizer-bar {
+    width: 3px;
+    background: linear-gradient(to top, #10b981, #34d399);
+    border-radius: 2px;
+    transition: height 0.1s ease;
+    animation: visualizer-pulse 1.5s ease-in-out infinite;
+}
+
+.visualizer-bar:nth-child(1) { animation-delay: 0s; }
+.visualizer-bar:nth-child(2) { animation-delay: 0.1s; }
+.visualizer-bar:nth-child(3) { animation-delay: 0.2s; }
+.visualizer-bar:nth-child(4) { animation-delay: 0.3s; }
+.visualizer-bar:nth-child(5) { animation-delay: 0.4s; }
+.visualizer-bar:nth-child(6) { animation-delay: 0.5s; }
+.visualizer-bar:nth-child(7) { animation-delay: 0.6s; }
+.visualizer-bar:nth-child(8) { animation-delay: 0.7s; }
+
+@keyframes visualizer-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* Chat Controls Section */
+#chatbox-controls {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    flex: 1;
+    background: white;
+    border-radius: 0 24px 24px 0;
+}
+
+/* Header */
+.chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    background: rgba(248, 250, 252, 0.8);
+}
+
+.chat-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Chat Info Icon */
+.chat-info-icon {
+    position: relative;
+    color: rgba(102, 126, 234, 0.7);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    z-index: 10001;
+    border: none;
+    background: none;
+    padding: 0;
+}
+
+.chat-info-icon:hover {
+    color: rgba(102, 126, 234, 1);
+    transform: scale(1.1);
+}
+
+.chat-info-icon:active {
+    transform: scale(0.95);
+}
+
+.chat-info-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Info Message Container */
+.info-message-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: white;
+    scroll-behavior: smooth;
+    display: none;
+}
+
+.info-message-container .message--info {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    padding: 12px 16px;
+    margin: 0;
+    border-radius: 18px 18px 18px 4px;
+    width: 85%;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Toggle state - hide chat history when showing info */
+#chatbox-controls.showing-info #chatbox-history {
+    display: none !important;
+}
+
+#chatbox-controls.showing-info .info-message-container {
+    display: flex !important;
+    flex-direction: column;
+}
+
+#close-button {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+#close-button:hover {
+    background: rgba(239, 68, 68, 0.8);
+    transform: scale(1.1);
+}
+
+/* Conversation Area */
+#chatbox-history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: white;
+    scroll-behavior: smooth;
+}
+
+#chatbox-history .message {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 18px 18px 18px 4px;
+    width: 85%;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #334155;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+#chatbox-history .message.message--user {
+    margin-left: 15%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 18px 18px 4px 18px;
+    text-align: right;
+}
+
+/* Voice Status Indicator (for future use) */
+.voice-status {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 20px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+    font-size: 14px;
+    font-weight: 500;
+    border-top: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.voice-status.active {
+    display: flex;
+}
+
+.voice-indicator {
+    width: 8px;
+    height: 8px;
+    background: #10b981;
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse-voice 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-voice {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+/* Input Area - Left Panel */
+.input-area-left {
+    display: flex;
+    align-items: center;
+    padding: 16px 20px;
+    background: rgba(0, 0, 0, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 12px;
+    min-width: 0; /* Allow container to shrink */
+    overflow: hidden; /* Prevent overflow */
+}
+
+.input-area-left form {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0; /* Allow flex items to shrink below their content size */
+}
+
+
+/* Input Area - Right Panel (removed from right) */
+.input-area {
+    display: none;
+}
+
+/* Input styling for left panel */
+.input-area-left input {
+    flex: 1;
+    min-width: 0; /* Allow input to shrink below its content size */
+    padding: 12px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 24px;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+    transition: all 0.2s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    backdrop-filter: blur(10px);
+}
+
+.input-area-left input:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
+    color: #333;
+}
+
+.input-area-left input::placeholder {
+    color: rgba(0, 0, 0, 0.5);
+}
+
+.input-area-left button[type="submit"] {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 80px;
+    flex-shrink: 0; /* Prevent button from shrinking */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    backdrop-filter: blur(10px);
+    white-space: nowrap; /* Prevent text wrapping */
+}
+
+.input-area-left button[type="submit"]:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.input-area-left button[type="submit"]:active {
+    transform: translateY(0);
+}
+
+
+/* Legacy input styling (hidden) */
+#chatbox-controls input {
+    display: none;
+}
+
+#chatbox-controls button[type="submit"] {
+    display: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    #chatbox {
+        bottom: 15px;
+        right: 15px;
+    }
+    
+    #chatbox:not(.open) {
+        max-width: 180px;
+        max-height: 180px;
+    }
+    
+    #start-button {
+        width: 180px;
+        height: 180px;
+        /* CRITICAL: Ensure button is ALWAYS clickable on mobile */
+        pointer-events: auto !important;
+        z-index: 10001 !important;
+        position: relative;
+        touch-action: manipulation !important;
+        -webkit-touch-action: manipulation !important;
+    }
+    
+    #start-button img {
+        width: 178px;
+        height: 178px;
+    }
+    
+    .lets-talk-text {
+        font-size: 12px;
+        padding: 6px 12px;
+        bottom: 12px;
+    }
+    
+    #chatbox.open {
+        max-width: calc(100vw - 30px);
+        max-height: calc(100vh - 30px);
+    }
+    
+    .avatar-section {
+        width: 60%;
+        height: 300px;
+    }
+    
+    #chatbox__inner {
+        height: 300px;
+    }
+    
+    .video-container {
+        flex: 1;
+    }
+    
+    .audio-controls {
+        padding: 8px 12px;
+    }
+    
+    .audio-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+    
+    .audio-visualizer {
+        height: 25px;
+    }
+    
+    .input-area-left {
+        padding: 8px 12px;
+        overflow: hidden; /* Prevent overflow */
+    }
+    
+    .input-area-left form {
+        gap: 8px; /* Reduce gap on smaller screens */
+    }
+    
+    .input-area-left input {
+        padding: 8px 12px;
+        font-size: 12px;
+        min-width: 0; /* Ensure input can shrink */
+    }
+    
+    .chat-info-icon {
+        width: 18px;
+        height: 18px;
+    }
+    
+    .chat-info-icon svg {
+        width: 14px;
+        height: 14px;
+    }
+    
+    
+    .input-area-left button[type="submit"] {
+        padding: 8px 14px;
+        font-size: 12px;
+        min-width: 50px;
+        flex-shrink: 0; /* Keep button always visible */
+        white-space: nowrap;
+    }
+    
+    #chatbox-history {
+        padding: 15px;
+    }
+    
+    .chat-header {
+        padding: 12px 15px;
+    }
+}
+
+@media (max-width: 480px) {
+    #chatbox {
+        bottom: 10px;
+        right: 10px;
+    }
+    
+    #chatbox:not(.open) {
+        max-width: 165px;
+        max-height: 165px;
+    }
+    
+    #start-button {
+        width: 165px;
+        height: 165px;
+        /* CRITICAL: Ensure button is ALWAYS clickable on small mobile */
+        pointer-events: auto !important;
+        z-index: 10001 !important;
+        position: relative;
+        touch-action: manipulation !important;
+        -webkit-touch-action: manipulation !important;
+    }
+    
+    #start-button img {
+        width: 163px;
+        height: 163px;
+    }
+    
+    .lets-talk-text {
+        font-size: 11px;
+        padding: 5px 10px;
+        bottom: 10px;
+    }
+    
+    .avatar-section {
+        width: 60%;
+        height: 250px;
+    }
+    
+    #chatbox__inner {
+        height: 250px;
+    }
+    
+    .video-container {
+        flex: 1;
+    }
+    
+    .audio-controls {
+        padding: 6px 10px;
+    }
+    
+    .audio-btn {
+        padding: 5px 8px;
+        font-size: 10px;
+    }
+    
+    .audio-visualizer {
+        height: 20px;
+    }
+    
+    .visualizer-bar {
+        width: 2px;
+    }
+    
+    .input-area-left {
+        padding: 6px 10px;
+        overflow: hidden; /* Prevent overflow */
+    }
+    
+    .input-area-left form {
+        gap: 6px; /* Reduce gap on very small screens */
+    }
+    
+    .input-area-left input {
+        padding: 6px 10px;
+        font-size: 11px;
+        min-width: 0; /* Ensure input can shrink */
+    }
+    
+    .chat-info-icon {
+        width: 16px;
+        height: 16px;
+    }
+    
+    .chat-info-icon svg {
+        width: 12px;
+        height: 12px;
+    }
+    
+    
+    .input-area-left button[type="submit"] {
+        padding: 6px 12px;
+        font-size: 11px;
+        min-width: 45px;
+        flex-shrink: 0; /* Keep button always visible */
+        white-space: nowrap;
+    }
+    
+    #chatbox-history {
+        padding: 12px;
+    }
+    
+    .chat-header {
+        padding: 10px 12px;
+    }
+    
+    .input-area {
+        padding: 10px 12px;
+    }
+    
+    #chatbox-controls input {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+    
+    #chatbox-controls button[type="submit"] {
+        padding: 10px 16px;
+        font-size: 13px;
+        min-width: 70px;
+    }
+}
+
+/* Animation for button appearance */
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+}
+
+#start-button {
+    animation: float 3s ease-in-out infinite;
+}
+
+#start-button:hover {
+    animation: none;
+}
+
+/* Pulse effect for attention */
+@keyframes pulse {
+    0% { box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }
+    50% { box-shadow: 0 8px 25px rgba(102, 126, 234, 0.8); }
+    100% { box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }
+}
+
+#start-button.new-message {
+    animation: pulse 2s ease-in-out infinite;
+}
