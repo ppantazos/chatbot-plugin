@@ -4,7 +4,6 @@ export class Config
     handler = '';
     openaiApiKey = '';
 
-
     constructor(handler) {
         this.handler = handler;
         this.init();
