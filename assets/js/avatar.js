@@ -60,7 +60,10 @@ export class Avatar
             enable_stt: false, // Disabled - we use OpenAI Whisper for STT
         });
 
-        const wsUrl = `wss://${new URL(this.config.serverUrl).hostname}/v1/ws/streaming.chat?${params}`;
+        const baseUrl = new URL(this.config.serverUrl);
+        const wsProtocol = baseUrl.protocol === "https:" ? "wss" : "ws";
+        const wsHost = baseUrl.hostname + (baseUrl.port ? ":" + baseUrl.port : "");
+        const wsUrl = `${wsProtocol}://${wsHost}/v1/ws/streaming.chat?${params}`;
 
         this.webSocket = new WebSocket(wsUrl);
 
