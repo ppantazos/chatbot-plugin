@@ -55,18 +55,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     const voiceInput = new VoiceInput();
     const openaiService = new OpenAIService(config.getOpenAIApiKey());
     
-    const DEFAULT_AVATAR_ID = "Katya_Chair_Sitting_public";
     const DEFAULT_INTRO = "Hello and welcome. How can I help you today?";
     const API_CONFIG = {
-        serverUrl: "https://api.heygen.com",
-        apiKey: "NmIzYTk3ZjIyMTI1NDQxNWJlM2JkZWFlMjY2Njc0MzctMTc1OTY4MTY1MA==",
-        avatarId: DEFAULT_AVATAR_ID,
-        knowledgeBaseId: null,
-        voiceId: null,
+        serverUrl: sellEmbeddedConfig.avatarServiceUrl || "",
+        apiKey: sellEmbeddedConfig.apiKey || "",
         intro: DEFAULT_INTRO
     };
 
-    await hydrateAccountConfig();
     kickOffVisitorInit();
     
     // Conversation history for OpenAI
@@ -151,9 +146,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                         messages.append(transcribedText);
                         messages.output('message', 'message--user');
                         
-                        // Send user message to SellEmbedded API
-                        sellEmbeddedApi.sendMessage(transcribedText, true).catch(() => {});
-                        
                         // Add to conversation history
                         conversationHistory.push({ role: 'user', content: transcribedText });
                         
@@ -188,6 +180,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             };
 
             await sellEmbeddedApi.initUserConversation();
+            API_CONFIG.conversationId = sellEmbeddedApi.conversationId;
             await avatar.createSession();
             await avatar.startStreaming();
         } catch (error) {
@@ -224,9 +217,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 },
                 () => {
                     // Stream complete - don't display here, avatar will display via avatar_talking_message
-                    
-                    // Send OpenAI response to SellEmbedded API
-                    sellEmbeddedApi.sendMessage(fullResponse, false).catch(() => {});
                     
                     // Add to conversation history
                     conversationHistory.push({ role: 'assistant', content: fullResponse });
@@ -581,11 +571,11 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
         }
 
-        // Send intro message only once per session
+        // Send intro message only once per session (from ilianaaiAvatar response or default)
         if (!introSent) {
             introSent = true;
             setTimeout(() => {
-                const introMessage = API_CONFIG.intro || DEFAULT_INTRO;
+                const introMessage = avatar.sessionInfo?.intro || API_CONFIG.intro || DEFAULT_INTRO;
                 avatar.sendText(introMessage, "repeat");
             }, 200);
         }
@@ -885,7 +875,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 // Display user message
                 messages.append(text);
                 messages.output('message', 'message--user');
-                sellEmbeddedApi.sendMessage(text, true);
                 
                 // Add to conversation history
                 conversationHistory.push({ role: 'user', content: text });
@@ -896,21 +885,6 @@ document.addEventListener('DOMContentLoaded', async function () {
                 taskInput.value = "";
             }
         });
-    }
-
-    async function hydrateAccountConfig() {
-        
-        try {
-            const accountConfig = await sellEmbeddedApi.getAccountConfig();
-            console.log('accountConfig', accountConfig);
-            API_CONFIG.avatarId = accountConfig?.avatarId || DEFAULT_AVATAR_ID;
-            API_CONFIG.knowledgeBaseId = accountConfig?.knowledgeBaseId ?? null;
-            API_CONFIG.voiceId = accountConfig?.voiceId ?? null;
-            API_CONFIG.intro = accountConfig?.intro || DEFAULT_INTRO;
-        } catch (error) {
-            API_CONFIG.avatarId = DEFAULT_AVATAR_ID;
-            API_CONFIG.intro = DEFAULT_INTRO;
-        }
     }
 
     function kickOffVisitorInit() {

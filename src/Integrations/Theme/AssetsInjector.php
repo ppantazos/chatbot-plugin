@@ -116,6 +116,7 @@ class AssetsInjector
     {
         return [
             'apiKey' => get_option(Registrar::SETTING_API_KEY),
+            'avatarServiceUrl' => get_option(Registrar::SETTING_AVATAR_SERVICE_URL) ?: '',
         ];
     }
 }

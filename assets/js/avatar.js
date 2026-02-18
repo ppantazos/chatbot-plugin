@@ -130,8 +130,7 @@ export class Avatar
             body: JSON.stringify({
                 quality: "medium",
                 version: "v2",
-                avatar_id: this.config.avatarId,
-                knowledge_base_id: this.config.knowledgeBaseId
+                conversation_id: this.config.conversationId || null
             })
         });
 

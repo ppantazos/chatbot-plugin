@@ -1,6 +1,5 @@
 export class SellEmbedded
 {
-    config = {};
     conversationId = null;
     visitorId = null;
 
@@ -120,25 +119,5 @@ export class SellEmbedded
                 }),
             }
         );
-    }
-
-    async getAccountConfig() {
-        const response = await fetch(
-            `${this.serverUrl}/account/config`,
-            {
-                method: "GET",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
-            }
-        );
-
-        const rawData = await response.json();
-        
-        this.config = rawData?.data?.config ?? {};
-
-        return this.config;
     }
 }
