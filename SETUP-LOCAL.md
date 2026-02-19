@@ -44,6 +44,7 @@
 3. The chatbot will appear on your WordPress site
 
 ## Troubleshooting
+- **"Class Inpsyde\\Modularity\\Properties\\PluginProperties not found"**: Run `composer install` in the plugin directory to install PHP dependencies. The plugin requires the `inpsyde/modularity` package from Composer.
 - If plugin doesn't appear: Check file permissions and ensure `vendor/autoload.php` exists
 - If errors occur: Check WordPress debug log (`wp-content/debug.log`)
 - Enable WordPress debugging: Add to `wp-config.php`:

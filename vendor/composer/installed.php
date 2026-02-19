@@ -1,6 +1,6 @@
 <?php return array(
     'root' => array(
-        'name' => 'avatar/avatar-integration',
+        'name' => 'petya/chatbot-plugin',
         'pretty_version' => '1.0.0+no-version-set',
         'version' => '1.0.0.0',
         'reference' => null,
@@ -10,21 +10,21 @@
         'dev' => true,
     ),
     'versions' => array(
-        'avatar/avatar-integration' => array(
-            'pretty_version' => '1.0.0+no-version-set',
-            'version' => '1.0.0.0',
-            'reference' => null,
-            'type' => 'wordpress-plugin',
-            'install_path' => __DIR__ . '/../../',
-            'aliases' => array(),
-            'dev_requirement' => false,
-        ),
         'inpsyde/modularity' => array(
             'pretty_version' => '1.12.0',
             'version' => '1.12.0.0',
             'reference' => 'e1ca1c81b7b663355906b586525d21ac5d46bc65',
             'type' => 'library',
             'install_path' => __DIR__ . '/../inpsyde/modularity',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
+        'petya/chatbot-plugin' => array(
+            'pretty_version' => '1.0.0+no-version-set',
+            'version' => '1.0.0.0',
+            'reference' => null,
+            'type' => 'wordpress-plugin',
+            'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
             'dev_requirement' => false,
         ),
