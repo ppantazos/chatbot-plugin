@@ -115,7 +115,9 @@ export class VoiceInput {
 
             // Set up onstop handler - this will be called when recording stops
             this.mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || 'audio/webm' });
+                // Guard: mediaRecorder may be null if cleanup() ran before onstop fires
+                const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
+                const audioBlob = new Blob(this.audioChunks, { type: mimeType });
                 this.isRecording = false;
                 
                 // Always call the callback if it exists (even if blob is empty - let the callback decide)
@@ -228,7 +230,8 @@ export class VoiceInput {
             // Wait a bit for onstop to fire, then manually trigger if needed
             setTimeout(() => {
                 if (this.isRecording && this.audioChunks.length > 0) {
-                    const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || 'audio/webm' });
+                    const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
+                    const audioBlob = new Blob(this.audioChunks, { type: mimeType });
                     this.isRecording = false;
                     if (this.onRecordingComplete) {
                         this.onRecordingComplete(audioBlob);

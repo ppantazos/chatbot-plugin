@@ -4,10 +4,10 @@
  * @var array $args
  */
 
-[
-    'id' => $id,
-    'default' => $default,
-] = $args;
+$id = $args['id'] ?? null;
+$default = $args['default'] ?? '';
+$inputType = $args['type'] ?? 'text';
+$description = $args['description'] ?? null;
 
 if (! isset($id)) {
     return;
@@ -15,15 +15,19 @@ if (! isset($id)) {
 
 $value = get_option($id);
 if (! $value) {
-    $value = $default ? : '';
+    $value = $default ?: '';
 }
 
 ?>
 
 <input
-    type="text"
+    type="<?= esc_attr($inputType) ?>"
     class="regular-text"
     id="<?= esc_attr($id) ?>"
     name="<?= esc_attr($id) ?>"
     value="<?= esc_attr($value) ?>"
+    autocomplete="off"
 />
+<?php if ($description): ?>
+    <p class="description"><?= esc_html($description) ?></p>
+<?php endif; ?>

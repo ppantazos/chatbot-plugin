@@ -9,6 +9,11 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+$localConfig = __DIR__ . '/config.local.php';
+if (file_exists($localConfig)) {
+    require_once $localConfig;
+}
+
 require_once __DIR__ . '/vendor/autoload.php';
 
 add_action('plugins_loaded', function () {

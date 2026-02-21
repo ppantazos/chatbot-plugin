@@ -29,7 +29,9 @@ export class OpenAIService {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+                const err = new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+                err.code = errorData.error?.code;
+                throw err;
             }
 
             const data = await response.json();

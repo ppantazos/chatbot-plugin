@@ -23,6 +23,6 @@ export class Config
     }
 
     getOpenAIApiKey() {
-        return this.openaiApiKey;
+        return this.config?.openaiApiKey ?? this.openaiApiKey ?? '';
     }
 }

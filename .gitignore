@@ -2,3 +2,4 @@ node_modules/
 dist/*.map
 release/
 dist/
+config.local.php

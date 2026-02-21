@@ -8,30 +8,18 @@ Use this checklist to verify the connection between the chatbot-plugin and ilian
 
 - [ ] ilianaaiAvatar is running locally (e.g. `http://localhost:3000`)
 - [ ] Petya backend is running and reachable by ilianaaiAvatar (for config + updateConversationStatus)
-- [ ] Heygen API key is set in ilianaaiAvatar's `.env`
+- [ ] LiveAvatar API key is set in ilianaaiAvatar's `.env`
 - [ ] WordPress with chatbot-plugin is running (e.g. `http://localhost:8080` or your local WP URL)
 
 ---
 
-## 2. WebSocket Protocol: Local vs Production
+## 2. Protocol: Local vs Production (LiveAvatar)
 
-The chatbot-plugin constructs the WebSocket URL as:
+With LiveAvatar, the plugin uses REST only for session setup; video/audio and events flow through LiveKit (not WebSocket). LiveAvatar returns `livekit_url` and `livekit_client_token` — the plugin connects directly to LiveAvatar's LiveKit infrastructure.
 
-```
-wss://{hostname}/v1/ws/streaming.chat?...
-```
-
-**Issue:** For local testing without SSL, ilianaaiAvatar likely uses `http://localhost:3000`. The plugin always uses `wss://`, which will fail against a non-SSL server.
-
-**Options:**
-
-| Option | How | Pros | Cons |
-|--------|-----|------|------|
-| **A** | Use `https://` and `wss://` locally | Run ilianaaiAvatar with a local HTTPS certificate (e.g. `mkcert`) | Closest to production |
-| **B** | Use ngrok/localtunnel | Expose local ilianaaiAvatar via `https://xxx.ngrok.io` | No code changes; get real HTTPS URL |
-| **C** | Update plugin for local dev | Use `ws://` when `avatarServiceUrl` starts with `http://` | Works with plain `http://localhost` |
-
-**Recommendation:** The chatbot-plugin now supports `ws://` when `avatarServiceUrl` uses `http://`. You can test locally with `http://localhost:3000` (or your ilianaaiAvatar port) — no ngrok required. For production, use `https://` and `wss://`.
+For ilianaaiAvatar itself (REST endpoints):
+- Local: `http://localhost:3000` works for `POST /v1/sessions/token` and `/v1/sessions/start`
+- If WordPress is on HTTPS and ilianaaiAvatar on HTTP, mixed content may block requests — use ngrok or local HTTPS for ilianaaiAvatar
 
 ---
 
@@ -48,40 +36,39 @@ Go to **WordPress Admin → Settings → Chatbot settings**:
 
 ---
 
-## 4. ilianaaiAvatar Checklist
+## 4. ilianaaiAvatar Checklist (LiveAvatar)
 
-- [ ] **Routes:** Endpoints available at `/v1/streaming.create_token`, `/v1/streaming.new`, etc. (no `/api/v1/avatar` prefix if chatbot uses base as `avatarServiceUrl`)
+- [ ] **Routes:** `POST /v1/sessions/token`, `POST /v1/sessions/start`, `POST /v1/sessions/stop`, `POST /v1/streaming.avatar_message`
 - [ ] **CORS:** Allows your WordPress origin (e.g. `http://localhost:8080`) — or `*` for dev
-- [ ] **Headers:** Accepts `X-Api-Key` and `X-api-key` (both used by the plugin)
-- [ ] **Petya config:** `GET /api/v1/avatar/config` returns valid config for your API key
-- [ ] **WebSocket:** Serves WebSocket at `wss://{host}/v1/ws/streaming.chat`
+- [ ] **Headers:** Accepts `X-Api-Key` and `Authorization: Bearer <session_token>`
+- [ ] **Petya config:** Returns valid `avatarId`, `intro`, `voiceId`, `contextId` for your API key
 
 ---
 
 ## 5. Manual Request Tests
 
-Before testing in the UI, verify each endpoint manually (Postman, curl, or browser console).
+Before testing in the UI, verify each endpoint manually.
 
-### 5.1 Create Token
-
-```bash
-curl -X POST "https://YOUR_AVATAR_URL/v1/streaming.create_token" \
-  -H "Content-Type: application/json" \
-  -H "X-Api-Key: YOUR_API_KEY"
-```
-
-**Expected:** `{"data":{"token":"..."}}`
-
-### 5.2 Create Session (streaming.new)
+### 5.1 Create Session Token
 
 ```bash
-curl -X POST "https://YOUR_AVATAR_URL/v1/streaming.new" \
+curl -X POST "YOUR_AVATAR_URL/v1/sessions/token" \
   -H "Content-Type: application/json" \
   -H "X-Api-Key: YOUR_API_KEY" \
-  -d '{"quality":"medium","version":"v2","conversation_id":null}'
+  -d '{"conversation_id":null}'
 ```
 
-**Expected:** `{"data":{"session_id":"...","url":"...","access_token":"...","intro":"..."}}`
+**Expected:** `{"data":{"session_id":"...","session_token":"..."}}`
+
+### 5.2 Start Session
+
+```bash
+curl -X POST "YOUR_AVATAR_URL/v1/sessions/start" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN"
+```
+
+**Expected:** `{"data":{"session_id":"...","livekit_url":"wss://...","livekit_client_token":"...","intro":"..."}}`
 
 If any request fails, fix ilianaaiAvatar before testing the full flow.
 
@@ -96,14 +83,12 @@ If any request fails, fix ilianaaiAvatar before testing the full flow.
 
 | Order | Request | Expected |
 |-------|---------|----------|
-| 1 | `POST .../v1/streaming.create_token` | 200, JSON with `data.token` |
-| 2 | `POST .../v1/streaming.new` | 200, JSON with `data.session_id`, `data.url`, `data.access_token` |
-| 3 | `wss://.../v1/ws/streaming.chat` | 101 (WebSocket upgrade) |
-| 4 | `POST .../v1/streaming.start` | 200 |
-| 5 | WebSocket frames | avatar_talking_message, etc. |
+| 1 | `POST .../v1/sessions/token` | 200, JSON with `data.session_id`, `data.session_token` |
+| 2 | `POST .../v1/sessions/start` | 200, JSON with `data.livekit_url`, `data.livekit_client_token` |
+| 3 | LiveKit WebSocket (to LiveAvatar) | 101 — video/audio stream and agent-response events |
 
 5. If any request is **blocked by CORS**, check ilianaaiAvatar CORS config.
-6. If WebSocket fails with **Mixed Content** (WordPress on HTTPS, avatar on HTTP), use the same protocol for both, or use ngrok for local HTTPS.
+6. If **Mixed Content** blocks requests (WordPress HTTPS + ilianaaiAvatar HTTP), use ngrok or local HTTPS for ilianaaiAvatar.
 
 ---
 
@@ -113,9 +98,9 @@ If any request fails, fix ilianaaiAvatar before testing the full flow.
 |---------|--------------|-----|
 | CORS error in console | ilianaaiAvatar not allowing your origin | Add your origin to CORS or use `*` for dev |
 | `Failed to fetch` / network error | Wrong URL, or ilianaaiAvatar not running | Check Avatar Service URL; ensure ilianaaiAvatar is up |
-| WebSocket closes immediately | Wrong protocol or ilianaaiAvatar WebSocket not ready | Plugin uses ws/wss based on avatarServiceUrl; ensure ilianaaiAvatar serves WebSocket |
 | 401 on requests | Invalid or missing API key | Ensure API key in WordPress matches Petya; check `X-Api-Key` header |
-| `data.token` / `data.session_id` undefined | ilianaaiAvatar response shape differs from Heygen | Match Heygen response format; see CHATBOT-PLUGIN-API-CONTRACT.md |
+| `data.session_token` / `livekit_client_token` undefined | ilianaaiAvatar response shape differs from contract | Match LiveAvatar response format; see CHATBOT-PLUGIN-API-CONTRACT.md |
+| LiveKit connection fails | Invalid token or LiveAvatar down | Check `livekit_url` and `livekit_client_token` from sessions/start |
 
 ---
 

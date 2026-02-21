@@ -12,6 +12,8 @@ class Registrar
 
     public const SETTING_AVATAR_SERVICE_URL = 'avatar-service-url';
 
+    public const SETTING_OPENAI_API_KEY = 'avatar-openai-api-key';
+
     public function __construct(private FieldRenderer $fieldRenderer)
     {
     }
@@ -20,6 +22,7 @@ class Registrar
     {
         register_setting(MenuInjector::PAGE_ID, self::SETTING_API_KEY);
         register_setting(MenuInjector::PAGE_ID, self::SETTING_AVATAR_SERVICE_URL);
+        register_setting(MenuInjector::PAGE_ID, self::SETTING_OPENAI_API_KEY);
 
         add_settings_section(
             self::SETTINGS_SECTION_API,
@@ -51,6 +54,21 @@ class Registrar
                 'label_for' => self::SETTING_AVATAR_SERVICE_URL,
                 'id' => self::SETTING_AVATAR_SERVICE_URL,
                 'default' => '',
+            ]
+        );
+
+        add_settings_field(
+            self::SETTING_OPENAI_API_KEY,
+            __('OpenAI API Key', 'avatar-integration'),
+            [$this->fieldRenderer, 'render'],
+            MenuInjector::PAGE_ID,
+            self::SETTINGS_SECTION_API,
+            [
+                'label_for' => self::SETTING_OPENAI_API_KEY,
+                'id' => self::SETTING_OPENAI_API_KEY,
+                'default' => '',
+                'type' => 'password',
+                'description' => __('Required for voice input (Whisper STT). One key per site, used for all visitors.', 'avatar-integration'),
             ]
         );
     }

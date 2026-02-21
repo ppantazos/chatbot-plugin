@@ -75,6 +75,21 @@ document.addEventListener('DOMContentLoaded', async function () {
     let isSessionStarting = false;
     let isProcessingAudio = false;
     let isAmySpeaking = false;
+    let transcriptionQuotaExhausted = false;
+
+    // Per-session buffer for avatar text chunks
+    let avatarTextBuffer = '';
+    let avatarEndDebounceTimer = null;
+
+    function sendAvatarMessageAndReset() {
+        const fullAvatarText = avatarTextBuffer.trim();
+        avatarTextBuffer = '';
+        avatarEndDebounceTimer = null;
+        if (fullAvatarText) {
+            avatar.reportAvatarMessage?.(fullAvatarText);
+            sellEmbeddedApi.sendMessage(fullAvatarText, false).catch(() => {});
+        }
+    }
 
     async function startFreshSession() {
         await gracefullyCloseActiveSession();
@@ -110,6 +125,14 @@ document.addEventListener('DOMContentLoaded', async function () {
             
             // Setup voice input callbacks
             voiceInput.onRecordingComplete = async (audioBlob) => {
+                // Don't retry transcription if quota was exhausted (avoids repeated failed API calls)
+                if (transcriptionQuotaExhausted) {
+                    updateVoiceStatus("Voice unavailable - OpenAI quota exceeded", false);
+                    if (!isMuted && voiceInput.isActive() && !isAmySpeaking) {
+                        setTimeout(() => voiceInput.startRecording(), 500);
+                    }
+                    return;
+                }
                 // CRITICAL: Don't process if avatar is speaking - this prevents feedback loop
                 if (isMuted || isProcessingAudio || isAmySpeaking) {
                     // Clear chunks to prevent processing stale audio
@@ -146,11 +169,13 @@ document.addEventListener('DOMContentLoaded', async function () {
                         messages.append(transcribedText);
                         messages.output('message', 'message--user');
                         
+                        // Store user message in Petya (SellEmbedded)
+                        sellEmbeddedApi.sendMessage(transcribedText, true).catch(() => {});
+                        
                         // Add to conversation history
                         conversationHistory.push({ role: 'user', content: transcribedText });
                         
-                        // Get response from OpenAI
-                        // await getOpenAIResponse(transcribedText);
+                        avatarTextBuffer = '';
                         avatar.sendText(transcribedText, "talk");
                     } else {
                         // No meaningful text - restart recording
@@ -163,9 +188,17 @@ document.addEventListener('DOMContentLoaded', async function () {
                         }
                     }
                 } catch (error) {
-                    updateVoiceStatus("Error processing audio", false);
                     isProcessingAudio = false;
-                    // Restart recording on error
+                    if (error.code === 'insufficient_quota') {
+                        transcriptionQuotaExhausted = true;
+                        updateVoiceStatus("Voice unavailable - OpenAI quota exceeded", false);
+                        if (!isMuted && voiceInput.isActive() && !isAmySpeaking) {
+                            setTimeout(() => voiceInput.startRecording(), 1000);
+                        }
+                        return;
+                    }
+                    updateVoiceStatus("Error processing audio", false);
+                    // Restart recording on other errors
                     if (!isMuted && voiceInput.isActive() && !isAmySpeaking) {
                         setTimeout(async () => {
                             updateVoiceStatus("Please speak", true);
@@ -221,10 +254,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     // Add to conversation history
                     conversationHistory.push({ role: 'assistant', content: fullResponse });
                     
-                    // Send text to avatar for TTS using "repeat" mode
-                    // The avatar will say exactly what OpenAI generated
-                    // Avatar speech will be displayed via WebSocket avatar_talking_message events
-                    // isAmySpeaking will be set when avatar_start_talking event fires
+                    avatarTextBuffer = '';
                     if (avatar && avatar.sessionInfo) {
                         avatar.sendText(fullResponse, "repeat");
                         // avatar.sendText(text, "talk");
@@ -278,6 +308,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         isListening = false;
         isProcessingAudio = false;
         isAmySpeaking = false;
+        transcriptionQuotaExhausted = false;
         conversationHistory = [];
         introSent = false; // Reset intro flag
 
@@ -327,33 +358,34 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         // Handle avatar speech text messages
         if (data.type === 'avatar_talking_message') {
-            // Show streaming text as avatar speaks in LEFT/GRAY box (bot message)
-            // Start a new bot message if this is the first chunk
-            if (data.message) {
-                // Check if we need to start a new message (first chunk of avatar speech)
+            const chunk = data.message || data.text || '';
+            if (chunk) {
+                avatarTextBuffer += chunk;
+                // Show streaming text as avatar speaks in LEFT/GRAY box (bot message)
                 if (!isAmySpeaking) {
-                    // This is the start of avatar speech - create new bot message
-                    messages.clearCurrent(); // Clear any current message buffer
+                    messages.clearCurrent();
                 }
-                messages.append(data.message);
+                messages.append(chunk);
                 messages.outputStreaming('message', 'message--bot');
             }
             return;
         }
 
         if (data.type === 'avatar_end_message') {
-            // Text generation complete, finalize the avatar message
-            // This finalizes the bot message in LEFT/GRAY box
-            if (data.message) {
-                messages.append(data.message);
-                messages.finalizeStreaming('message', 'message--bot');
-                // Note: SellEmbedded API message was already sent in getOpenAIResponse
+            const finalChunk = data.message || data.text || '';
+            if (finalChunk) {
+                avatarTextBuffer += finalChunk;
+                messages.append(finalChunk);
             }
+            // Only finalize display here. Report avatar only on avatar.speak_ended/avatar_stop_talking to avoid duplicates.
+            messages.finalizeStreaming('message', 'message--bot');
             return;
         }
 
         // Handle avatar video/audio stream events
         if (data.type === 'avatar_start_talking') {
+            if (avatarEndDebounceTimer) { clearTimeout(avatarEndDebounceTimer); avatarEndDebounceTimer = null; }
+            avatarTextBuffer = '';
             // CRITICAL: Set flag FIRST, then stop recording
             isAmySpeaking = true;
             updateVoiceStatus("Amy is speaking...", true);
@@ -371,8 +403,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         if (data.type === 'avatar_stop_talking') {
-            // CRITICAL: Reset flag FIRST
+            if (avatarEndDebounceTimer) { clearTimeout(avatarEndDebounceTimer); avatarEndDebounceTimer = null; }
+            sendAvatarMessageAndReset();
+            messages.finalizeStreaming('message', 'message--bot');
+
+            // CRITICAL: Reset flags - required for voice "talk" flow
             isAmySpeaking = false;
+            isProcessingAudio = false;
             updateVoiceStatus("Please speak", true);
             
             // Wait a bit before resuming to ensure avatar is fully done
@@ -458,8 +495,9 @@ document.addEventListener('DOMContentLoaded', async function () {
                     
                     // Wait 500ms of silence before considering speech ended
                     if (silenceDuration > 500) {
-                        // CRITICAL: Reset flag FIRST
+                        // CRITICAL: Reset flags - required for voice "talk" flow
                         isAmySpeaking = false;
+                        isProcessingAudio = false;
                         updateVoiceStatus("Please speak", true);
                         speakingStartTime = null;
                         avatar.onAvatarSpeechEnd?.();
@@ -503,6 +541,8 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Avatar speech callbacks (WebSocket events)
     avatar.onAvatarSpeechStart = () => {
+        if (avatarEndDebounceTimer) { clearTimeout(avatarEndDebounceTimer); avatarEndDebounceTimer = null; }
+        avatarTextBuffer = '';
         // CRITICAL: Set flag FIRST, then stop recording
         isAmySpeaking = true;
         updateVoiceStatus("Amy is speaking...", true);
@@ -519,8 +559,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     };
 
     avatar.onAvatarSpeechEnd = () => {
-        // CRITICAL: Reset flag FIRST
+        if (avatarEndDebounceTimer) { clearTimeout(avatarEndDebounceTimer); avatarEndDebounceTimer = null; }
+        sendAvatarMessageAndReset();
+        messages.finalizeStreaming('message', 'message--bot');
+
+        // CRITICAL: Reset flags - required for voice "talk" flow where we never use getOpenAIResponse
         isAmySpeaking = false;
+        isProcessingAudio = false;
         updateVoiceStatus("Please speak", true);
         
         // Wait a bit before resuming to ensure avatar is fully done
@@ -575,6 +620,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (!introSent) {
             introSent = true;
             setTimeout(() => {
+                avatarTextBuffer = '';
                 const introMessage = avatar.sessionInfo?.intro || API_CONFIG.intro || DEFAULT_INTRO;
                 avatar.sendText(introMessage, "repeat");
             }, 200);
@@ -876,8 +922,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                 messages.append(text);
                 messages.output('message', 'message--user');
                 
+                // Store user message in Petya (SellEmbedded)
+                sellEmbeddedApi.sendMessage(text, true).catch(() => {});
+                
                 // Add to conversation history
                 conversationHistory.push({ role: 'user', content: text });
+                avatarTextBuffer = '';
                 avatar.sendText(text, "talk");
                 // Get response from OpenAI
                 // await getOpenAIResponse(text);

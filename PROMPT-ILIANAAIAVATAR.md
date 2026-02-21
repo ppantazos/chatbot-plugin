@@ -1,129 +1,105 @@
-# ilianaaiAvatar: New Service Implementation
+# ilianaaiAvatar: LiveAvatar Proxy Implementation
 
-Use this prompt when creating the **ilianaaiAvatar** service from scratch. This service proxies all Heygen API calls and manages avatar sessions for customers (e.g. chatbot-plugin embedded on their sites).
+Use this prompt when creating or updating the **ilianaaiAvatar** service. This service proxies LiveAvatar API calls (replacing Heygen Interactive Avatar) and manages avatar sessions for customers (e.g. chatbot-plugin embedded on their sites).
+
+**Why LiveAvatar:** HeyGen Interactive Avatar is being upgraded to LiveAvatar. LiveAvatar improves voice chat on both web and mobile (Heygen had known issues on mobile).
 
 ---
 
 ## Purpose
 
-- **Proxy** all Heygen streaming API calls (`api.heygen.com`) so clients never call Heygen directly.
+- **Proxy** LiveAvatar API calls (`api.liveavatar.com`) so clients never call LiveAvatar directly.
 - **Authenticate** customers via API key (X-Api-Key or Authorization header).
-- **Look up** avatar config (avatarId, intro, etc.) from Petya for each customer.
-- **Store** conversation/session mapping in Petya's MongoDB.
-- **Build transcript** from session events and call Petya's `updateConversationStatus` when the session ends.
+- **Look up** avatar config (avatarId, voiceId, contextId, intro) from Petya for each customer.
+- **Store** conversation/session mapping and call Petya's `updateConversationStatus` when the session ends.
 
 ---
 
 ## Architecture
 
 ```
-chatbot-plugin (browser) → ilianaaiAvatar → Heygen API
-                              ↓
-                        Petya (config + updateConversationStatus)
-                              ↓
-                        MongoDB (Petya's DB)
+chatbot-plugin (browser) → ilianaaiAvatar → LiveAvatar API (api.liveavatar.com)
+                              ↓                    ↓
+                        Petya (config)      LiveKit room (video/audio)
+                              ↓                    ↑
+                        updateConversationStatus    │
+                                                   │
+                        chatbot-plugin ←───────────┘
+                        (connects to LiveKit directly with tokens from ilianaaiAvatar)
 ```
+
+The plugin connects to LiveAvatar's LiveKit room using `livekit_url` and `livekit_client_token` returned by ilianaaiAvatar. Command events (avatar.speak_text, avatar.speak_response) and server events (avatar.transcription, etc.) flow through the LiveKit room—no WebSocket proxy needed.
 
 ---
 
-## Tech Stack Recommendation
+## LiveAvatar Endpoints to Proxy
 
-- **Runtime:** Node.js
-- **Framework:** Express or Fastify
-- **WebSocket:** `ws` for proxying Heygen WebSocket
-- **HTTP client:** `node-fetch` or `axios` for proxying Heygen REST
-- **MongoDB driver:** `mongodb` (optional, if ilianaaiAvatar writes directly to DB; otherwise Petya handles all DB writes)
-
----
-
-## Heygen Endpoints to Proxy
-
-Proxy these Heygen API calls. Client sends same path/body; ilianaaiAvatar forwards to Heygen with its own `HEYGEN_API_KEY`.
-
-| Heygen endpoint | Method | ilianaaiAvatar route | Notes |
-|-----------------|--------|----------------------|-------|
-| `/v1/streaming.create_token` | POST | Same path | Forward to Heygen, return token |
-| `/v1/streaming.new` | POST | Same path | **Inject** avatar_id, knowledge_base_id from Petya config; **add** intro to response |
-| `/v1/streaming.start` | POST | Same path | Forward session_id |
-| `/v1/streaming.task` | POST | Same path | Forward; **collect** user text for transcript |
-| `/v1/streaming.stop` | POST | Same path | Forward; **then** build transcript, call Petya updateConversationStatus |
-| `wss://api.heygen.com/v1/ws/streaming.chat` | WebSocket | Same path | **Proxy** WebSocket; **collect** avatar_talking_message, avatar_end_message for transcript |
-
----
-
-## Route Structure
-
-Use base path `/api/v1/avatar` for all avatar routes, then mirror Heygen paths:
-
-```
-POST   /api/v1/avatar/v1/streaming.create_token
-POST   /api/v1/avatar/v1/streaming.new
-POST   /api/v1/avatar/v1/streaming.start
-POST   /api/v1/avatar/v1/streaming.task
-POST   /api/v1/avatar/v1/streaming.stop
-WS     /api/v1/avatar/v1/ws/streaming.chat
-```
-
-**OR** expose at root for simpler client URLs (chatbot-plugin uses `serverUrl` as base):
-
-```
-POST   /v1/streaming.create_token
-POST   /v1/streaming.new
-...
-WS     /v1/ws/streaming.chat
-```
-
-Choose based on your deployment (reverse proxy, etc.). The chatbot-plugin will use `avatarServiceUrl` (e.g. `https://avatar.ilianaai.com`) as the base, so paths are relative to that.
+| LiveAvatar endpoint | Method | ilianaaiAvatar route | Notes |
+|---------------------|--------|----------------------|-------|
+| `/v1/sessions/token` | POST | `POST /v1/sessions/token` | **Inject** avatar_id, avatar_persona from Petya config |
+| `/v1/sessions/start` | POST | `POST /v1/sessions/start` | Forward with `Authorization: Bearer <session_token>`; **add** intro to response |
+| `/v1/sessions/stop` | POST | `POST /v1/sessions/stop` | Forward; **then** call Petya updateConversationStatus |
+| `/v1/streaming.avatar_message` | POST | Same path | **Custom:** Client sends avatar text; ilianaaiAvatar stores and posts to Petya |
 
 ---
 
 ## Request Flow
 
-### 1. streaming.create_token
+### 1. Create Session Token
 
-- Client: `POST {base}/v1/streaming.create_token` with `X-Api-Key: <customer_api_key>`
-- ilianaaiAvatar: Validate API key (optional: verify with Petya), forward to Heygen with `HEYGEN_API_KEY`
-- Return Heygen response (token) to client
-
-### 2. streaming.new (Create Session)
-
-- Client: `POST {base}/v1/streaming.new` with body `{ quality, version, conversation_id }` (conversation_id from SellEmbedded, used for updateConversationStatus)
+- Client: `POST {base}/v1/sessions/token` with `X-Api-Key`, body `{ conversation_id }`
 - ilianaaiAvatar:
-  1. Call Petya config endpoint with customer API key → get `avatarId`, `intro`, `knowledgeBaseId`, `voiceId`
-  2. Forward to Heygen with body `{ quality, version, avatar_id, knowledge_base_id }`
-  3. Return Heygen response **plus** `intro` in the response (e.g. `data.intro`) so the client can use it
-- Store `conversation_id` ↔ `session_id` in MongoDB (or pass to Petya) — need `conversation_id` from client; if not sent, generate or use session_id.
+  1. Validate API key, fetch config from Petya → `avatarId`, `voiceId`, `contextId`, `intro`
+  2. Call LiveAvatar `POST https://api.liveavatar.com/v1/sessions/token` with `X-API-KEY: LIVEAVATAR_API_KEY`, body:
+     ```json
+     {
+       "mode": "FULL",
+       "avatar_id": "<from Petya>",
+       "avatar_persona": {
+         "voice_id": "<from Petya or null>",
+         "context_id": "<from Petya or null>",
+         "language": "en"
+       }
+     }
+     ```
+  3. Return `{ data: { session_id, session_token } }` to client
 
-### 3. streaming.start, streaming.task
+### 2. Start Session
 
-- Forward to Heygen with `HEYGEN_API_KEY`
-- For streaming.task: append `{ role: "user", transcript: text }` to in-memory transcript for this session
+- Client: `POST {base}/v1/sessions/start` with `Authorization: Bearer <session_token>`
+- ilianaaiAvatar: Forward to LiveAvatar with same Bearer token
+- LiveAvatar returns `session_id`, `livekit_url`, `livekit_client_token`
+- ilianaaiAvatar returns response **plus** `intro` in `data.intro` (from Petya config)
 
-### 4. WebSocket Proxy
+### 3. Client Connects to LiveKit
 
-- Client connects to ilianaaiAvatar WebSocket with `session_id`, `session_token` (from create_token + streaming.new)
-- ilianaaiAvatar connects to Heygen WebSocket with same params
-- Bidirectional forwarding of messages
-- On `avatar_talking_message`, `avatar_end_message`: append to in-memory transcript for this session
-- When WebSocket closes (or on streaming.stop): trigger transcript persist + updateConversationStatus
+- Client uses `livekit_url` and `livekit_client_token` to connect to LiveAvatar's LiveKit room
+- Client publishes command events to topic `agent-control`:
+  - `avatar.speak_response` — user text → avatar generates LLM response
+  - `avatar.speak_text` — avatar speaks exact text (intro, bot replies)
+- Client receives server events on topic `agent-response`:
+  - `avatar.speak_started`, `avatar.speak_ended`, `avatar.transcription`
 
-### 5. streaming.stop
+### 4. streaming.avatar_message (Option A)
 
-- Forward to Heygen
-- Build final transcript from collected user + avatar messages
-- Call Petya `updateConversationStatus` with transcript
-- Clean up in-memory transcript for this session
+- Client: `POST {base}/v1/streaming.avatar_message` with `{ session_id, text }`
+- ilianaaiAvatar: Store as avatar message, optionally post to Petya for transcript sync
+
+### 5. Stop Session
+
+- Client: `POST {base}/v1/sessions/stop` with `{ session_id }`
+- ilianaaiAvatar: Forward to LiveAvatar; build transcript from collected messages; call Petya `updateConversationStatus`
 
 ---
 
 ## Environment Variables
 
 ```env
-HEYGEN_API_KEY=...
-HEYGEN_BASE_URL=https://api.heygen.com
+LIVEAVATAR_API_KEY=...
+LIVEAVATAR_BASE_URL=https://api.liveavatar.com
 PETYA_BASE_URL=https://your-petya-backend.com
-PETYA_AUTH_TOKEN=...          # or whatever ilianaaiAvatar uses to call Petya
-MONGODB_URI=...               # if writing directly to Petya's MongoDB
+PETYA_AUTH_TOKEN=...
+MONGODB_URI=...               # optional, if writing directly
 ```
 
 ---
@@ -132,81 +108,24 @@ MONGODB_URI=...               # if writing directly to Petya's MongoDB
 
 ### Config lookup
 
-- `GET {PETYA_BASE_URL}/api/v1/avatar/config` (or whatever Petya implements)
-- Header: `X-Api-Key: <customer_api_key>` (forward from client) or `Authorization: Bearer ${PETYA_AUTH_TOKEN}` if Petya uses service auth
+- `GET {PETYA_BASE_URL}/api/v1/avatar/config`
+- Header: `X-Api-Key: <customer_api_key>` (from client)
 - Response: `{ avatarId, intro, knowledgeBaseId, voiceId }`
+- Map `knowledgeBaseId` → `context_id` (LiveAvatar uses "Context" instead of "Knowledge Base")
 
 ### updateConversationStatus
 
-- `POST {PETYA_BASE_URL}/api/v1/avatar/conversations/:conversationId/status` (or whatever Petya implements)
+- `POST {PETYA_BASE_URL}/api/v1/avatar/conversations/:conversationId/status`
 - Body: `{ sessionId, status: "completed", transcript: [...] }`
-- Use Petya's auth mechanism (e.g. service token)
-
----
-
-## conversation_id Handling
-
-The chatbot-plugin uses SellEmbedded for `conversationId`. That may differ from Petya's conversation model. Options:
-
-1. **Pass conversationId from client** — Add `conversation_id` to streaming.new request body; ilianaaiAvatar stores it and passes to updateConversationStatus.
-2. **Use session_id as conversation_id** — Map Heygen session_id to a Petya conversation; Petya creates conversation on first updateConversationStatus call.
-3. **Sync with SellEmbedded** — If SellEmbedded and Petya share concepts, align IDs.
-
-Coordinate with Petya implementation.
-
----
-
-## Transcript Format
-
-Build transcript in a format Petya expects, e.g.:
-
-```json
-[
-  { "role": "user", "transcript": "Hello", "absolute_timestamp": 1234567890 },
-  { "role": "avatar", "transcript": "Hi there!", "absolute_timestamp": 1234567891 }
-]
-```
 
 ---
 
 ## CORS
 
-Enable CORS for the chatbot-plugin origin (customer websites). Allow:
-- `Origin` from config or `*` for development
-- Methods: GET, POST, OPTIONS
-- Headers: Content-Type, X-Api-Key, Authorization
+Allow: `Content-Type`, `X-Api-Key`, `Authorization`; methods: `GET`, `POST`, `OPTIONS`.
 
 ---
 
-## Project Structure (Suggested)
+## Chatbot-Plugin Contract
 
-```
-ilianaaiAvatar/
-├── src/
-│   ├── index.js           # Express app entry
-│   ├── routes/
-│   │   └── heygen.js      # Proxy routes
-│   ├── services/
-│   │   ├── heygen.js      # Heygen API client
-│   │   ├── petya.js       # Petya API client (config, updateConversationStatus)
-│   │   └── transcript.js  # Transcript builder
-│   ├── proxy/
-│   │   └── websocket.js   # WebSocket proxy
-│   └── middleware/
-│       └── auth.js        # API key extraction/validation
-├── package.json
-├── .env.example
-└── README.md
-```
-
----
-
-## Chatbot-Plugin Compatibility
-
-The chatbot-plugin sends:
-- `X-Api-Key` on all avatar requests
-- Body for streaming.new: `{ quality: "medium", version: "v2" }` (no avatar_id; you inject)
-- Expects response from streaming.new to include `data.session_id`, `data.url`, `data.access_token`, and optionally `data.intro`
-- Connects WebSocket to `wss://{your-host}/v1/ws/streaming.chat?session_id=...&session_token=...` (same query params as Heygen)
-
-Ensure ilianaaiAvatar preserves Heygen's response shape for compatibility.
+See **CHATBOT-PLUGIN-API-CONTRACT.md** for the exact request/response shapes the plugin expects.

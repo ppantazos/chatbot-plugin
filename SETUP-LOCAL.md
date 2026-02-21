@@ -39,12 +39,17 @@
 - Composer dependencies (already installed in `vendor/` folder)
 
 ## After Setup
-1. Go to WordPress Admin → Settings → SellEmbedded Chatbot
-2. Configure your API key
-3. The chatbot will appear on your WordPress site
+1. **OpenAI API key:** Edit `config.local.php` in the plugin folder and replace `sk-proj-YOUR_KEY_HERE` with your key from https://platform.openai.com/api-keys
+2. Go to WordPress Admin → Settings → Chatbot settings
+3. Configure your **API Key** (SellEmbedded/ilianaaiAvatar)
+4. Configure **Avatar Service URL** (e.g. `http://localhost:3000` for local ilianaaiAvatar). The plugin uses the **LiveAvatar** API (ilianaaiAvatar proxies LiveAvatar; see CHATBOT-PLUGIN-API-CONTRACT.md).
+5. The chatbot will appear on your WordPress site
 
 ## Troubleshooting
 - **"Class Inpsyde\\Modularity\\Properties\\PluginProperties not found"**: Run `composer install` in the plugin directory to install PHP dependencies. The plugin requires the `inpsyde/modularity` package from Composer.
+- **`401 (Unauthorized)` on OpenAI transcription**: Voice input uses OpenAI Whisper. Set a valid **OpenAI API Key** in Settings → Chatbot settings. Without it, speech cannot be transcribed.
+- **`insufficient_quota` on OpenAI transcription**: Your OpenAI account has exceeded its billing quota. Add payment method at https://platform.openai.com/account/billing. The plugin stops retrying transcription after this error to avoid repeated failed calls.
+- **`avatar.reportAvatarMessage is not a function`**: Run `npm run build` in the plugin directory to rebuild the JS bundle, then hard-refresh the page (Ctrl+Shift+R).
 - If plugin doesn't appear: Check file permissions and ensure `vendor/autoload.php` exists
 - If errors occur: Check WordPress debug log (`wp-content/debug.log`)
 - Enable WordPress debugging: Add to `wp-config.php`:

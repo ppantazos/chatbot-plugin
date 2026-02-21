@@ -114,9 +114,13 @@ class AssetsInjector
 
     public function moduleDataGenerator(): array
     {
+        $openaiKey = defined('CHATBOT_OPENAI_API_KEY')
+            ? (string) CHATBOT_OPENAI_API_KEY
+            : (get_option(Registrar::SETTING_OPENAI_API_KEY) ?: '');
         return [
             'apiKey' => get_option(Registrar::SETTING_API_KEY),
             'avatarServiceUrl' => get_option(Registrar::SETTING_AVATAR_SERVICE_URL) ?: '',
+            'openaiApiKey' => $openaiKey,
         ];
     }
 }

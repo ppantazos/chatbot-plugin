@@ -9,9 +9,13 @@ export class Avatar
     sessionToken = null;
     sessionInfo = null;
     room = null;
-    webSocket = null;
-    
-    // Callbacks for WebSocket events
+
+    /** Agent-response topic for LiveAvatar server events */
+    static AGENT_RESPONSE_TOPIC = 'agent-response';
+    /** Agent-control topic for command events */
+    static AGENT_CONTROL_TOPIC = 'agent-control';
+
+    // Callbacks for avatar speech events
     onAvatarSpeechStart = null;
     onAvatarSpeechEnd = null;
 
@@ -33,160 +37,199 @@ export class Avatar
         this.microphone = null;
     }
 
+    /**
+     * Create session token (LiveAvatar).
+     * Returns session_id, session_token.
+     */
     async getSessionToken() {
         const response = await fetch(
-            `${this.config.serverUrl}/v1/streaming.create_token`,
+            `${this.config.serverUrl}/v1/sessions/token`,
             {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "X-Api-Key": this.config.apiKey,
                 },
+                body: JSON.stringify({
+                    conversation_id: this.config.conversationId || null
+                }),
             }
         );
 
         const data = await response.json();
-        this.sessionToken = data.data.token;
-    }
-
-    async connectWebSocket(sessionId) {
-        const params = new URLSearchParams({
-            session_id: sessionId,
-            session_token: this.sessionToken,
-            silence_response: false,
-            opening_text: "",
-            stt_language: "en",
-            enable_tts: true,
-            enable_stt: false, // Disabled - we use OpenAI Whisper for STT
-        });
-
-        const baseUrl = new URL(this.config.serverUrl);
-        const wsProtocol = baseUrl.protocol === "https:" ? "wss" : "ws";
-        const wsHost = baseUrl.hostname + (baseUrl.port ? ":" + baseUrl.port : "");
-        const wsUrl = `${wsProtocol}://${wsHost}/v1/ws/streaming.chat?${params}`;
-
-        this.webSocket = new WebSocket(wsUrl);
-
-        // Handle WebSocket events
-        this.webSocket.addEventListener("message", (event) => {
-            try {
-                const eventData = JSON.parse(event.data);
-                this.handleWebSocketMessage(eventData);
-            } catch (error) {
-                // Silent error handling
-            }
-        });
-
-        this.webSocket.addEventListener("open", async () => {
-            // Voice input is initialized in Start button handler (user gesture)
-            // This ensures mic permission and audio pipeline setup happen in the same gesture
-        });
-
-        this.webSocket.addEventListener("error", (error) => {
-            // Silent error handling
-        });
-
-        this.webSocket.addEventListener("close", (event) => {
-            // Silent error handling
-        });
-    }
-
-    handleWebSocketMessage(eventData) {
-        if (eventData.type === 'user_speech_start') {
-            this.onVoiceInputStart?.();
-        } else if (eventData.type === 'user_speech_end') {
-            this.onVoiceInputEnd?.();
-        } else if (eventData.type === 'avatar_speech_start') {
-            this.onAvatarSpeechStart?.();
-        } else if (eventData.type === 'avatar_speech_end') {
-            this.onAvatarSpeechEnd?.();
-        } else if (eventData.type === 'user_talking_message') {
-            // Avatar STT transcribed the audio (not used since we use OpenAI Whisper)
-        } else if (eventData.type === 'avatar_talking_message') {
-            // Avatar is speaking - show streaming text
-            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
-                type: 'avatar_talking_message',
-                message: eventData.message || eventData.text || ''
-            })));
-        } else if (eventData.type === 'avatar_end_message') {
-            // Avatar finished speaking - finalize text
-            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
-                type: 'avatar_end_message',
-                message: eventData.message || eventData.text || ''
-            })));
+        if (!response.ok) {
+            throw new Error(data?.detail || data?.message || 'Failed to create session token');
         }
+        this.sessionToken = data.data?.session_token;
+        return data.data?.session_id;
     }
 
-    async createSession() {
-        if (! this.sessionToken) {
-            await this.getSessionToken();
-        }
-
-        // Create new session
-        const response = await fetch(`${this.config.serverUrl}/v1/streaming.new`, {
+    /**
+     * Start session (LiveAvatar).
+     * Returns livekit_url, livekit_client_token for room connection.
+     */
+    async startSession() {
+        const response = await fetch(`${this.config.serverUrl}/v1/sessions/start`, {
             method: "POST",
             headers: {
                 "Accept": "application/json",
-                "Content-type": "application/json",
-                "X-Api-Key": this.config.apiKey
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${this.sessionToken}`,
             },
-            body: JSON.stringify({
-                quality: "medium",
-                version: "v2",
-                conversation_id: this.config.conversationId || null
-            })
         });
 
         const sessionData = await response.json();
-        this.sessionInfo = sessionData.data;
+        if (!response.ok) {
+            throw new Error(sessionData?.detail || sessionData?.message || 'Failed to start session');
+        }
+        const data = sessionData.data;
+        // Normalize to url/access_token for room.prepareConnection/connect compatibility
+        this.sessionInfo = {
+            session_id: data.session_id,
+            url: data.livekit_url,
+            access_token: data.livekit_client_token,
+            intro: data.intro,
+        };
+        return this.sessionInfo;
+    }
+
+    /**
+     * Handle LiveAvatar server events from agent-response topic.
+     * Maps to internal event format for main.js compatibility.
+     */
+    handleAgentResponseEvent(eventData) {
+        const eventType = eventData.event_type;
+        const text = eventData.text ?? '';
+
+        if (eventType === 'avatar.speak_started') {
+            this.onAvatarSpeechStart?.();
+            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
+                type: 'avatar_start_talking',
+            })));
+        } else if (eventType === 'avatar.speak_ended') {
+            this.onAvatarSpeechEnd?.();
+            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
+                type: 'avatar_stop_talking',
+            })));
+        } else if (eventType === 'avatar.transcription' && text) {
+            // LiveAvatar sends full text at once (not streamed). Emit for display; avatar report only on speak_ended.
+            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
+                type: 'avatar_talking_message',
+                message: text,
+                text: text,
+            })));
+            this.onDataReceived?.(new TextEncoder().encode(JSON.stringify({
+                type: 'avatar_end_message',
+                message: text,
+                text: text,
+            })));
+        } else if (eventType === 'user.transcription' && text?.trim()) {
+            this.reportUserMessage(text.trim());
+        }
+    }
+
+    /**
+     * Report user transcription to ilianaaiAvatar for transcript sync.
+     * Called when user.transcription is received from LiveKit agent-response.
+     */
+    reportUserMessage(text) {
+        if (!this.sessionInfo?.session_id || !text?.trim()) {
+            return;
+        }
+        fetch(`${this.config.serverUrl}/v1/streaming.user_message`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Api-Key": this.config.apiKey,
+            },
+            body: JSON.stringify({
+                session_id: this.sessionInfo.session_id,
+                text: text.trim(),
+            }),
+        }).catch(() => {});
+    }
+
+    async createSession() {
+        await this.getSessionToken();
+        await this.startSession();
 
         this.createRoom();
         this.handleRoomEvents();
 
         await this.room.prepareConnection(this.sessionInfo.url, this.sessionInfo.access_token);
-
-        // Connect WebSocket after room preparation
-        await this.connectWebSocket(this.sessionInfo.session_id);
     }
 
     async startStreaming() {
-        if (! this.sessionInfo) {
+        if (!this.sessionInfo) {
             await this.createSession();
         }
 
-        // Start streaming
-        await fetch(`${this.config.serverUrl}/v1/streaming.start`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-api-key": this.config.apiKey
-            },
-            body: JSON.stringify({
-                session_id: this.sessionInfo.session_id
-            })
-        });
-
         // Connect to LiveKit room
         await this.room.connect(this.sessionInfo.url, this.sessionInfo.access_token);
-        
+
         // Wait for room to be fully ready
         await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Note: Audio publishing removed - we use OpenAI Whisper for STT instead
-        // Avatar only receives text and responds with TTS
 
         document.dispatchEvent(new Event('streamSessionStarted'));
     }
 
-    // Send text to avatar
+    /**
+     * Send text to avatar via LiveKit agent-control.
+     * taskType "talk" -> avatar.speak_response (avatar generates LLM response)
+     * taskType "repeat" -> avatar.speak_text (avatar speaks exact text)
+     */
     async sendText(text, taskType = "repeat") {
+        if (!this.sessionInfo?.session_id || !this.room?.localParticipant) {
+            return;
+        }
+
+        const eventType = taskType === "talk" ? "avatar.speak_response" : "avatar.speak_text";
+        const payload = {
+            event_type: eventType,
+            session_id: this.sessionInfo.session_id,
+            text: text,
+        };
+
+        try {
+            const data = new TextEncoder().encode(JSON.stringify(payload));
+            this.room.localParticipant.publishData(data, {
+                reliable: true,
+                topic: Avatar.AGENT_CONTROL_TOPIC,
+            });
+        } catch (error) {
+            // Silent error handling
+        }
+    }
+
+    /**
+     * Report avatar message to ilianaaiAvatar for transcript/Petya sync.
+     */
+    reportAvatarMessage(text) {
+        if (!this.sessionInfo?.session_id || !text?.trim()) {
+            return;
+        }
+
+        fetch(`${this.config.serverUrl}/v1/streaming.avatar_message`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Api-Key": this.config.apiKey,
+            },
+            body: JSON.stringify({
+                session_id: this.sessionInfo.session_id,
+                text: text.trim(),
+            }),
+        }).catch(() => {});
+    }
+
+    async closeSession() {
         if (!this.sessionInfo) {
             return;
         }
 
         try {
-            const response = await fetch(
-                `${this.config.serverUrl}/v1/streaming.task`,
+            await fetch(
+                `${this.config.serverUrl}/v1/sessions/stop`,
                 {
                     method: "POST",
                     headers: {
@@ -195,41 +238,13 @@ export class Avatar
                     },
                     body: JSON.stringify({
                         session_id: this.sessionInfo.session_id,
-                        text: text,
-                        task_type: taskType,
                     }),
                 }
             );
         } catch (error) {
             // Silent error handling
         }
-    }
 
-    async closeSession() {
-        if (!this.sessionInfo) {
-            return;
-        }
-
-        await fetch(
-            `${this.config.serverUrl}/v1/streaming.stop`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Api-Key": this.config.apiKey,
-                },
-                body: JSON.stringify({
-                    session_id: this.sessionInfo.session_id,
-                }),
-            }
-        );
-
-        // Close WebSocket
-        if (this.webSocket) {
-            this.webSocket.close();
-        }
-
-        // Disconnect from LiveKit room
         if (this.room) {
             this.room.disconnect();
         }
@@ -241,7 +256,6 @@ export class Avatar
         this.sessionToken = null;
     }
 
-    // Create LiveKit Room
     createRoom() {
         this.room = new LivekitClient.Room({
             adaptiveStream: true,
@@ -254,32 +268,40 @@ export class Avatar
 
     handleRoomEvents() {
         this.room.on(LivekitClient.RoomEvent.DataReceived, (message, participant, kind, topic) => {
-            this.onDataReceived(message);
+            try {
+                const rawData = new TextDecoder().decode(message);
+                const eventData = JSON.parse(rawData);
+                const topicStr = typeof topic === 'string' ? topic : (topic ?? '');
+                const isAgentResponse = topicStr === Avatar.AGENT_RESPONSE_TOPIC ||
+                    ['avatar.speak_started', 'avatar.speak_ended', 'avatar.transcription', 'user.transcription'].includes(eventData.event_type);
+                if (isAgentResponse && eventData.event_type) {
+                    this.handleAgentResponseEvent(eventData);
+                    return;
+                }
+            } catch (error) {
+                // Not JSON or other parse error - pass through
+            }
+            this.onDataReceived?.(message);
         });
         this.room.on(LivekitClient.RoomEvent.TrackSubscribed, this.onTrackSubscribed);
         this.room.on(LivekitClient.RoomEvent.TrackUnsubscribed, this.onTrackUnsubscribed);
         this.room.on(LivekitClient.RoomEvent.Disconnected, this.onDisconnect);
     }
 
-    // Set existing stream (deprecated - kept for compatibility)
     setExistingStream(stream) {
         this.existingStream = stream;
     }
 
-    // Voice Input Methods (deprecated - voice input now handled by VoiceInput class)
     async startVoiceInput(existingStream = null) {
-        // No-op: Voice input is now handled by VoiceInput class in main.js
-        // This method is kept for compatibility but does nothing
         return;
     }
 
     toggleMute() {
         this.isMuted = !this.isMuted;
-        
+
         if (this.audioTrackPublication) {
             this.audioTrackPublication.setMuted(this.isMuted);
         } else if (this.room?.localParticipant) {
-            // Fallback: find the microphone publication
             for (const pub of this.room.localParticipant.trackPublications.values()) {
                 if (pub.source === LivekitClient.Track.Source.Microphone) {
                     pub.setMuted(this.isMuted);
@@ -287,19 +309,15 @@ export class Avatar
                 }
             }
         }
-        
+
         return this.isMuted;
     }
 
     getAudioLevel() {
-        // Deprecated: Audio level is now provided by VoiceInput class
-        // This method is kept for compatibility but returns 0
         return 0;
     }
 
     cleanupVoiceInput() {
-        // No-op: Voice input cleanup is now handled by VoiceInput class in main.js
-        // This method is kept for compatibility but does nothing
         this.audioStream = null;
         this.audioContext = null;
         this.analyser = null;
@@ -307,4 +325,3 @@ export class Avatar
         this.audioTrackPublication = null;
     }
 }
-
