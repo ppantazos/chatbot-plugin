@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     await hydrateAccountConfig();
     const visitorInitPromise = kickOffVisitorInit();
 
-    // Conversation history for OpenAI
+    // Conversation history (used if LLM integration is added later)
     let conversationHistory = [];
     
     // Audio/session state
@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     async function gracefullyCloseActiveSession() {
         const pendingTasks = [];
 
-        if (avatar && (avatar.sessionInfo || avatar.room || avatar.webSocket)) {
+        if (avatar && (avatar.sessionInfo || avatar.room)) {
             pendingTasks.push(
                 avatar.closeSession().catch((error) => {
                 })

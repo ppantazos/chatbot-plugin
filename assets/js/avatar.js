@@ -13,7 +13,6 @@ export class Avatar
     sessionToken = null;
     sessionInfo = null;
     room = null;
-    webSocket = null;
 
     // Callbacks for avatar speech events
     onAvatarSpeechStart = null;
@@ -235,10 +234,6 @@ export class Avatar
             }
         } catch (error) {
             // Silent error handling
-        }
-
-        if (this.webSocket) {
-            this.webSocket.close();
         }
 
         if (this.room) {
