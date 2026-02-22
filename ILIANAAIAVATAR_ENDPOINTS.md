@@ -34,7 +34,7 @@ This document specifies all endpoints for the **ilianaaiAvatar** proxy app, whic
 
 ## Authentication
 
-**Client → ilianaaiAvatar:** No authentication required if the proxy is behind a firewall or protected by your infrastructure. For public deployments, add API key or JWT validation.
+**Client → ilianaaiAvatar:** Sessions and avatars endpoints do not require auth from the client.
 
 **ilianaaiAvatar → LiveAvatar:** All requests to LiveAvatar use `X-API-KEY: <LIVEAVATAR_API_KEY>` header. For session start/stop with session token, use `Authorization: Bearer <session_token>`.
 

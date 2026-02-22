@@ -49,7 +49,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     const mediaStream = new MediaStream();
     const messages = new Messages(history)
-    const sellEmbeddedApi = new SellEmbedded(sellEmbeddedConfig.apiKey);
+    const sellEmbeddedApi = new SellEmbedded(sellEmbeddedConfig.apiKey, {
+        serverUrl: sellEmbeddedConfig.petyaApiUrl || undefined,
+    });
     
     // Initialize Voice Input (single point of truth)
     const voiceInput = new VoiceInput();
@@ -67,8 +69,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     };
 
     await hydrateAccountConfig();
-    kickOffVisitorInit();
-    
+    const visitorInitPromise = kickOffVisitorInit();
+
     // Conversation history for OpenAI
     let conversationHistory = [];
     
@@ -141,6 +143,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 updateVoiceStatus("Microphone error - check permissions", false);
             };
 
+            await visitorInitPromise;
             await sellEmbeddedApi.initUserConversation();
             await avatar.createSession();
             await avatar.startStreaming();
@@ -234,51 +237,54 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         // Handle avatar speech text messages
-        if (data.type === 'avatar_talking_message') {
-            // Accumulate for Petya persistence
-            if (data.message) {
-                avatarResponseBuffer += data.message;
+        if (data.type === 'avatar_talking_message' || data.type === 'avatar_end_message') {
+            const chunk = (data.message || '').trim();
+            if (!chunk) return;
+
+            // Fallback: set speaking status and STOP recording immediately when we receive transcription.
+            // Mic can pick up avatar's voice from speakers — stop before it gets transcribed as "user" input.
+            if (!isAmySpeaking) {
+                isAmySpeaking = true;
+                updateVoiceStatus("Amy is speaking...", true);
+                if (webSpeechService.isAvailable()) webSpeechService.stop();
+                voiceInput.audioChunks = [];
             }
-            // Show streaming text as avatar speaks in LEFT/GRAY box (bot message)
-            // Start a new bot message if this is the first chunk
-            if (data.message) {
-                // Check if we need to start a new message (first chunk of avatar speech)
-                if (!isAmySpeaking) {
-                    // This is the start of avatar speech - create new bot message
-                    messages.clearCurrent(); // Clear any current message buffer
-                }
-                messages.append(data.message);
-                messages.outputStreaming('message', 'message--bot');
+
+            const bufBefore = avatarResponseBuffer;
+            // Skip if this chunk is already in our buffer (duplicate)
+            if (bufBefore.length > 0 && bufBefore.includes(chunk) && chunk.length > 20) {
+                return;
             }
+            // Replace when chunk is the FULL transcript: long, and either contains our buffer or overlaps significantly.
+            // LiveAvatar may send partial first (mid-sentence) then full; full has minor text variations.
+            const overlap = bufBefore.length > 30 && chunk.includes(bufBefore.slice(-40));
+            const chunkIsFull = chunk.length > 100 && (
+                chunk.includes(bufBefore) ||
+                (bufBefore.length > 0 && overlap && chunk.length >= bufBefore.length)
+            );
+            if (chunkIsFull) {
+                avatarResponseBuffer = chunk;
+            } else {
+                // Add space between chunks when trim() removed it (LiveAvatar may send "word1" "word2")
+                const needsSpace = bufBefore.length > 0 && !/\s$/.test(bufBefore);
+                avatarResponseBuffer += (needsSpace ? ' ' : '') + chunk;
+            }
+            // Don't display during speech — show message only when avatar finishes (avatar_stop_talking).
+            // Avoids text appearing before she's done speaking.
             return;
         }
 
-        if (data.type === 'avatar_end_message') {
-            const finalChunk = data.message || '';
-            const fullText = avatarResponseBuffer + finalChunk;
-            if (finalChunk) {
-                messages.clearCurrent(); // Start fresh to avoid appending to previous message
-                messages.append(finalChunk);
-                messages.outputStreaming('message', 'message--bot'); // Render avatar text
-            }
-            messages.finalizeStreaming('message', 'message--bot');
-            if (fullText.trim()) {
-                sellEmbeddedApi.sendMessage(fullText, false).catch(() => {});
-            }
-            avatarResponseBuffer = '';
-            return;
-        }
-
-        // LiveAvatar user.transcription (when user's mic is in room)
-        if (data.type === 'user_transcription' && data.message) {
-            sellEmbeddedApi.sendMessage(data.message.trim(), true).catch(() => {});
+        // LiveAvatar user.transcription — do NOT send to Petya here.
+        // We already send user messages from webSpeechService.onTranscript (voice) and form submit (text).
+        // Sending here would duplicate, since we send to avatar via sendText and LiveAvatar may echo.
+        if (data.type === 'user_transcription') {
             return;
         }
 
         // Handle avatar video/audio stream events
         if (data.type === 'avatar_start_talking') {
-            // Reset buffer for new avatar turn
-            avatarResponseBuffer = '';
+            // Do NOT clear avatarResponseBuffer — transcription chunks often arrive BEFORE speak_started.
+            // Clearing here wipes the beginning of the message when speak_started fires late.
             // CRITICAL: Set flag FIRST, then stop recording
             isAmySpeaking = true;
             updateVoiceStatus("Amy is speaking...", true);
@@ -289,9 +295,6 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
             // Clear any pending audio chunks to prevent processing
             voiceInput.audioChunks = [];
-            
-            // Ensure we start a new bot message for avatar speech
-            messages.clearCurrent();
             return;
         }
 
@@ -299,7 +302,18 @@ document.addEventListener('DOMContentLoaded', async function () {
             // CRITICAL: Reset flag FIRST
             isAmySpeaking = false;
             updateVoiceStatus("Please speak", true);
-            
+
+            // Display the full message only now (after she finishes speaking)
+            if (avatarResponseBuffer.trim()) {
+                let text = deduplicateAvatarMessage(avatarResponseBuffer.trim());
+                messages.clearCurrent();
+                messages.append(text);
+                messages.output('message', 'message--bot');
+                sellEmbeddedApi.sendMessage(text, false).catch(() => {});
+            }
+            messages.finalizeStreaming('message', 'message--bot');
+            avatarResponseBuffer = '';
+
             // Wait a bit before resuming to ensure avatar is fully done
             setTimeout(() => {
                 if (!isMuted && !isAmySpeaking && voiceInput.isActive() && !isProcessingAudio && webSpeechService.isAvailable()) {
@@ -496,18 +510,18 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Start audio visualizer
         startAudioVisualizer();
 
-        // Start continuous voice recording
-        if (!isMuted && voiceInput.isActive()) {
-            try {
-                if (webSpeechService.isAvailable()) webSpeechService.start();
-                updateVoiceStatus("Please speak", true);
-            } catch (error) {
-                updateVoiceStatus("Microphone error", false);
-            }
+        // Do NOT start recording yet — avatar greets immediately; mic would capture her voice.
+        // Recording starts only after avatar_stop_talking.
+        // Show "Starting..." until avatar finishes; avoid "Please speak" while she's talking.
+        if (isMuted) {
+            updateVoiceStatus("Voice muted", true);
+        } else {
+            updateVoiceStatus("Starting...", true);
         }
 
-        // Send intro message only once per session
-        if (!introSent) {
+        // Send intro only if configured (disabled by default - LiveAvatar/Petya provides the greeting)
+        const sendIntro = sellEmbeddedConfig.sendIntro === true;
+        if (sendIntro && !introSent) {
             introSent = true;
             setTimeout(() => {
                 const introMessage = API_CONFIG.intro || DEFAULT_INTRO;
@@ -673,6 +687,27 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
 
+    // Remove duplicate content from avatar message (LiveAvatar may send partial + full transcript)
+    function deduplicateAvatarMessage(text) {
+        // If text contains a clear intro marker and duplicates, keep only the complete part
+        const introMarker = "Hi -- I'm Iliana";
+        if (text.includes(introMarker)) {
+            const idx = text.indexOf(introMarker);
+            const fromIntro = text.slice(idx);
+            // If the part from intro is substantial and the original had content before it, likely a duplicate
+            if (fromIntro.length > 50 && idx > 20) {
+                return fromIntro.trim();
+            }
+        }
+        // Look for long repeated phrase (e.g. "conversations into structured sales opportunities")
+        const repeatPhrase = "conversations into structured sales opportunities";
+        if (text.split(repeatPhrase).length > 2) {
+            const lastIdx = text.lastIndexOf(repeatPhrase);
+            return text.slice(lastIdx).trim();
+        }
+        return text;
+    }
+
     // Voice status update function
     function updateVoiceStatus(message, isActive) {
         const voiceStatus = document.getElementById('voice-status');
@@ -686,7 +721,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         const indicator = document.getElementById('voice-indicator');
 
         if (statusText) {
-            statusText.textContent = message;
+            statusText.textContent = (message && String(message).trim()) || 'Please speak';
         }
 
         if (isActive) {
@@ -850,26 +885,18 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     function kickOffVisitorInit() {
-        fetchVisitorMetadata()
+        return fetchVisitorMetadata()
             .then(({ip, location}) => {
                 if (!ip) {
-                    return;
+                    return null;
                 }
-
-                sellEmbeddedApi
-                    .initVisitor({
-                        ip,
-                        location,
-                        conversationId: sellEmbeddedApi.conversationId
-                    })
-                    .then(() => {
-                        // Visitor initialized
-                    })
-                    .catch(error => {
-                    });
+                return sellEmbeddedApi.initVisitor({
+                    ip,
+                    location,
+                    conversationId: sellEmbeddedApi.conversationId
+                });
             })
-            .catch(error => {
-            });
+            .catch(() => null);
     }
 
     async function fetchVisitorMetadata() {

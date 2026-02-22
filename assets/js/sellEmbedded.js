@@ -4,8 +4,12 @@ export class SellEmbedded
     conversationId = null;
     visitorId = null;
 
-    constructor(apiKey) {
-        this.serverUrl = "https://app.sellembedded.com/api/v1";
+    /**
+     * @param {string} apiKey - Petya/Sell Embedded API key (per-tenant, from plugin settings)
+     * @param {{ serverUrl?: string }} [options] - serverUrl overrides Petya API base (e.g. http://localhost:5000/api/v1 for local)
+     */
+    constructor(apiKey, options = {}) {
+        this.serverUrl = (options.serverUrl || "https://app.sellembedded.com/api/v1").replace(/\/$/, '');
         this.apiKey = apiKey;
     }
 
@@ -26,8 +30,13 @@ export class SellEmbedded
         );
 
         const rawData = await response.json();
-
-        this.conversationId = rawData.data._id;
+        if (!rawData.success || !rawData.data) {
+            throw new Error(rawData.message || 'Failed to create conversation');
+        }
+        this.conversationId = rawData.data._id || rawData.data.id || null;
+        if (!this.conversationId) {
+            throw new Error('Conversation ID not returned from Petya');
+        }
     }
 
     async completeUserConversation() {
@@ -55,10 +64,20 @@ export class SellEmbedded
 
     async sendMessage(content, isFromUser) {
         if (!this.conversationId) {
+            console.warn('[SellEmbedded] sendMessage skipped: no conversationId');
+            return;
+        }
+        if (!content || typeof content !== 'string') {
             return;
         }
 
-        await fetch(
+        const payload = {
+            conversationId: this.conversationId,
+            isFromUser: isFromUser,
+            content: String(content).trim(),
+        };
+
+        const response = await fetch(
             `${this.serverUrl}/messages/userMessages/init`,
             {
                 method: "POST",
@@ -67,13 +86,16 @@ export class SellEmbedded
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${this.apiKey}`,
                 },
-                body: JSON.stringify({
-                    conversationId: this.conversationId,
-                    isFromUser: isFromUser,
-                    content: content,
-                }),
+                body: JSON.stringify(payload),
             }
         );
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            console.warn('[SellEmbedded] sendMessage failed:', response.status, data?.message || data);
+            throw new Error(data?.message || `Failed to store message (${response.status})`);
+        }
+        return data;
     }
 
     async initVisitor({ ip, location = null, conversationId = null }) {

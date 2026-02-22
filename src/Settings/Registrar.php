@@ -10,6 +10,7 @@ class Registrar
 
     public const SETTING_API_KEY = 'avatar-api-key';
     public const SETTING_AVATAR_PROXY_URL = 'avatar-proxy-url';
+    public const SETTING_PETYA_API_URL = 'petya-api-url';
 
     public function __construct(private FieldRenderer $fieldRenderer)
     {
@@ -19,6 +20,7 @@ class Registrar
     {
         register_setting(MenuInjector::PAGE_ID, self::SETTING_API_KEY);
         register_setting(MenuInjector::PAGE_ID, self::SETTING_AVATAR_PROXY_URL);
+        register_setting(MenuInjector::PAGE_ID, self::SETTING_PETYA_API_URL);
 
         add_settings_section(
             self::SETTINGS_SECTION_API,
@@ -50,6 +52,19 @@ class Registrar
                 'label_for' => self::SETTING_AVATAR_PROXY_URL,
                 'id' => self::SETTING_AVATAR_PROXY_URL,
                 'default' => 'http://localhost:3000',
+            ]
+        );
+
+        add_settings_field(
+            self::SETTING_PETYA_API_URL,
+            __('Petya API Base URL', 'avatar-integration'),
+            [$this->fieldRenderer, 'render'],
+            MenuInjector::PAGE_ID,
+            self::SETTINGS_SECTION_API,
+            [
+                'label_for' => self::SETTING_PETYA_API_URL,
+                'id' => self::SETTING_PETYA_API_URL,
+                'default' => 'https://app.sellembedded.com/api/v1',
             ]
         );
     }

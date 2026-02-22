@@ -68,6 +68,7 @@ export class Messages
         // Clear current streaming element and message parts to start fresh
         // This is used when switching between user and bot messages
         if (this.currentStreamingElement) {
+            this.currentStreamingElement.remove();
             this.currentStreamingElement = null;
         }
         this.reset();

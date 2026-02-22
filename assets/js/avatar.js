@@ -77,8 +77,10 @@ export class Avatar
         if (eventType === 'avatar.speak_ended' || eventType === 'agent.speak_ended') {
             return { type: 'avatar_stop_talking' };
         }
+        // LiveAvatar sends avatar.transcription per word/phrase while speaking.
+        // Treat as streaming chunk; main.js finalizes on avatar_stop_talking.
         if (eventType === 'avatar.transcription' && eventData.text != null) {
-            return { type: 'avatar_end_message', message: String(eventData.text) };
+            return { type: 'avatar_talking_message', message: String(eventData.text) };
         }
         if (eventType === 'user.transcription' && eventData.text != null) {
             return { type: 'user_transcription', message: String(eventData.text) };
