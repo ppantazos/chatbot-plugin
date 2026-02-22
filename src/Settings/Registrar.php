@@ -9,6 +9,7 @@ class Registrar
     private const SETTINGS_SECTION_API = 'api';
 
     public const SETTING_API_KEY = 'avatar-api-key';
+    public const SETTING_AVATAR_PROXY_URL = 'avatar-proxy-url';
 
     public function __construct(private FieldRenderer $fieldRenderer)
     {
@@ -17,6 +18,7 @@ class Registrar
     public function register(): void
     {
         register_setting(MenuInjector::PAGE_ID, self::SETTING_API_KEY);
+        register_setting(MenuInjector::PAGE_ID, self::SETTING_AVATAR_PROXY_URL);
 
         add_settings_section(
             self::SETTINGS_SECTION_API,
@@ -27,7 +29,7 @@ class Registrar
 
         add_settings_field(
             self::SETTING_API_KEY,
-            __('API Key', 'avatar-integration'),
+            __('SellEmbedded API Key', 'avatar-integration'),
             [$this->fieldRenderer, 'render'],
             MenuInjector::PAGE_ID,
             self::SETTINGS_SECTION_API,
@@ -35,6 +37,19 @@ class Registrar
                 'label_for' => self::SETTING_API_KEY,
                 'id' => self::SETTING_API_KEY,
                 'default' => '',
+            ]
+        );
+
+        add_settings_field(
+            self::SETTING_AVATAR_PROXY_URL,
+            __('Avatar Proxy URL (ilianaaiAvatar)', 'avatar-integration'),
+            [$this->fieldRenderer, 'render'],
+            MenuInjector::PAGE_ID,
+            self::SETTINGS_SECTION_API,
+            [
+                'label_for' => self::SETTING_AVATAR_PROXY_URL,
+                'id' => self::SETTING_AVATAR_PROXY_URL,
+                'default' => 'http://localhost:3000',
             ]
         );
     }
