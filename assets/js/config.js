@@ -11,11 +11,14 @@ export class Config
 
     init() {
         const dataContainer = document.querySelector(`#wp-script-module-data-${this.handler}`);
-        if (! dataContainer) {
+        if (!dataContainer) {
             return;
         }
-
-        this.config = JSON.parse(dataContainer.textContent);
+        try {
+            this.config = JSON.parse(dataContainer.textContent);
+        } catch (e) {
+            console.warn('[Config] Failed to parse module data:', e?.message || e);
+        }
     }
 
     fetch() {

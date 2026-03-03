@@ -630,6 +630,10 @@
     border: 1px solid rgba(255, 255, 255, 0.8);
 }
 
+#chatbox-history .message.message--bot {
+    margin-right: auto;
+}
+
 #chatbox-history .message.message--user {
     margin-left: 15%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -638,9 +642,10 @@
     text-align: right;
 }
 
-/* Voice Status Indicator (for future use) */
+/* Voice Status Indicator */
 .voice-status {
     display: none;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     padding: 12px 20px;
