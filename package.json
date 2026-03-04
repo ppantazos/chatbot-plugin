@@ -1,7 +1,7 @@
 {
-  "name": "sellembedded-chatbot",
-  "version": "1.1.2",
-  "description": "Build pipeline for the SellEmbedded chatbot assets.",
+  "name": "ilianaai-chatbot",
+  "version": "2.0.0",
+  "description": "Build pipeline for the Iliana AI chatbot assets.",
   "scripts": {
     "clean": "rimraf dist",
     "build": "npm run clean && node scripts/build.js",

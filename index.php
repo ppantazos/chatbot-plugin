@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 /**
- * Plugin Name: SellEmbedded Chatbot
- * Description: Integrates with SellEmbedded Chatbot.
- * Version:     1.1.0
+ * Plugin Name: Iliana AI Chatbot
+ * Description: Integrates with Iliana AI Chatbot.
+ * Version:     2.0.0
  * License:     GPLv2+
  */
 

@@ -13,7 +13,7 @@ if (!fs.existsSync(distFile)) {
 const releaseDir = path.join(rootDir, 'release');
 fs.mkdirSync(releaseDir, { recursive: true });
 
-const zipPath = path.join(releaseDir, 'sellembedded-chatbot.zip');
+const zipPath = path.join(releaseDir, 'ilianaai-chatbot.zip');
 const output = fs.createWriteStream(zipPath);
 const archive = archiver('zip', { zlib: { level: 9 } });
 

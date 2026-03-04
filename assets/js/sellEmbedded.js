@@ -71,9 +71,10 @@ export class SellEmbedded
             return;
         }
 
+        // API expects: { content, conversationId, isFromUser }
         const payload = {
             conversationId: this.conversationId,
-            isFromUser: isFromUser,
+            isFromUser: !!isFromUser,
             content: String(content).trim(),
         };
 

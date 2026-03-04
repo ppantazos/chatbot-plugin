@@ -116,8 +116,8 @@ class AssetsInjector
     {
         return [
             'apiKey' => get_option(Registrar::SETTING_API_KEY),
-            'avatarProxyUrl' => get_option(Registrar::SETTING_AVATAR_PROXY_URL) ?: 'http://localhost:3000',
-            'petyaApiUrl' => get_option(Registrar::SETTING_PETYA_API_URL) ?: 'https://app.sellembedded.com/api/v1',
+            'avatarProxyUrl' => get_option(Registrar::SETTING_AVATAR_PROXY_URL) ?: 'https://avatar.ilianaai.com',
+            'avatarApiUrl' => get_option(Registrar::SETTING_AVATAR_API_URL) ?: 'https://app.ilianaai.com/api/v1',
         ];
     }
 }

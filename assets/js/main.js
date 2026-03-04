@@ -18,7 +18,9 @@ async function waitForElement(id, timeout = 5000) {
     return null;
 }
 
-document.addEventListener('DOMContentLoaded', async function () {
+// Module scripts load deferred; when they run, DOMContentLoaded may have already fired (e.g. script in footer).
+// So we must run init either when DOM is ready or immediately if it's already loaded.
+async function initChatbot() {
     try {
         // const sellEmbeddedConfig = (new Config('main-chat-integration')).fetch();
         const config = new Config('main-chat-integration');
@@ -60,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     const DEFAULT_AVATAR_ID = null; // LiveAvatar requires UUID; set via account config (avatarId)
     const DEFAULT_INTRO = "Hello and welcome. How can I help you today?";
     const API_CONFIG = {
-        serverUrl: sellEmbeddedConfig.avatarProxyUrl || "http://localhost:3000",
+        serverUrl: sellEmbeddedConfig.avatarProxyUrl || "https://avatar.ilianaai.com",
         avatarId: DEFAULT_AVATAR_ID,
         knowledgeBaseId: null,
         contextId: null,
@@ -82,63 +84,47 @@ document.addEventListener('DOMContentLoaded', async function () {
     let isSessionStarting = false;
     let isProcessingAudio = false;
     let isAmySpeaking = false;
+    let lastAvatarSpeechEndTime = 0;
 
     // Buffer to accumulate avatar response text for persisting to Petya
     let avatarResponseBuffer = '';
 
-    async function startFreshSession() {
+    /**
+     * @param {Promise<MediaStream>|null} [micPromise] - On mobile, pass a promise started in the same sync turn as the tap so getUserMedia runs in user gesture context.
+     */
+    async function startFreshSession(micPromise = null) {
+        // On mobile, await mic FIRST before any other await so the user gesture is still valid for getUserMedia
+        if (micPromise) {
+            try {
+                await micPromise;
+            } catch (micError) {
+                const friendlyMsg = getMicErrorMessage(micError);
+                updateVoiceStatus(friendlyMsg, false);
+                throw new Error(friendlyMsg);
+            }
+        }
+
         await gracefullyCloseActiveSession();
-        resetUiStateForFreshSession();
+        // On mobile we don't use getUserMedia; don't cleanup so we keep the running speech recognition
+        resetUiStateForFreshSession(!!micPromise || voiceInput.isMobileDevice);
 
         if (container) {
             container.classList.add('open', 'is-loading');
         }
 
         try {
-            // Initialize voice input (single point of truth)
-            // On mobile, this must happen within user gesture (button click)
+            // Initialize voice input (mic for visualizer) only on desktop; on mobile we leave mic to Web Speech API only
             try {
-                // On mobile, ensure we're in a user gesture context
                 if (voiceInput.isMobileDevice) {
-                    // Check if getUserMedia is available
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error('getUserMedia not available. Please use HTTPS or localhost.');
-                    }
+                    // Skip getUserMedia on mobile so Speech Recognition gets exclusive mic
+                } else if (!micPromise) {
+                    await voiceInput.initialize();
                 }
-                
-                await voiceInput.initialize();
             } catch (micError) {
-                // On mobile, provide more helpful error message
-                if (voiceInput.isMobileDevice) {
-                    const errorMsg = micError.message || 'Unknown error';
-                    updateVoiceStatus("Microphone permission required - please allow access", false);
-                    throw new Error(`Microphone access denied: ${errorMsg}. Please allow microphone permissions and try again.`);
-                } else {
-                    throw micError;
-                }
+                const friendlyMsg = getMicErrorMessage(micError);
+                updateVoiceStatus(friendlyMsg, false);
+                throw new Error(friendlyMsg);
             }
-            
-            webSpeechService.onTranscript = (transcribedText) => {
-                if (isMuted || isProcessingAudio || isAmySpeaking) return;
-                if (!transcribedText || transcribedText.trim().length < 2) return;
-
-                isProcessingAudio = true;
-                updateVoiceStatus("Processing...", false);
-
-                const text = transcribedText.trim();
-                messages.clearCurrent(); // Close any streaming before new user message
-                messages.append(text);
-                messages.output('message', 'message--user');
-                sellEmbeddedApi.sendMessage(text, true).catch(() => {});
-                conversationHistory.push({ role: 'user', content: text });
-                avatar.sendText(text, "talk");
-                isProcessingAudio = false;
-            };
-
-            webSpeechService.onError = (error) => {
-                updateVoiceStatus("Microphone error - check permissions", false);
-            };
-
             voiceInput.onError = (error) => {
                 updateVoiceStatus("Microphone error - check permissions", false);
             };
@@ -178,7 +164,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
-    function resetUiStateForFreshSession() {
+    /**
+     * @param {boolean} [skipVoiceCleanup] - If true, do not call voiceInput.cleanup() (e.g. when reusing stream from micPromise on mobile).
+     */
+    function resetUiStateForFreshSession(skipVoiceCleanup = false) {
         if (messages) {
             messages.clearHistory();
         }
@@ -196,9 +185,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         stopAudioVisualizer();
         
-        // Clean up voice input and speech recognition
-        voiceInput.cleanup();
-        webSpeechService.cleanup();
+        if (!skipVoiceCleanup) {
+            voiceInput.cleanup();
+            webSpeechService.cleanup();
+        }
 
         if (mediaElement) {
             mediaElement.srcObject = null;
@@ -207,16 +197,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
 
     function resetMuteButtonUi() {
-        if (!muteBtn) {
-            return;
-        }
-
+        if (!muteBtn) return;
         muteBtn.classList.remove('muted');
         const textElement = document.getElementById('mute-button-text');
-        if (textElement) {
-            textElement.textContent = 'Mute Mic';
-        }
-
+        if (textElement) textElement.textContent = 'Mute Mic';
         const iconElement = document.getElementById('mute-button-icon');
         if (iconElement) {
             iconElement.innerHTML = `
@@ -225,7 +209,6 @@ document.addEventListener('DOMContentLoaded', async function () {
             `;
         }
     }
-
 
     function onDataReceived(message) {
         const rawData = new TextDecoder().decode(message);
@@ -241,12 +224,10 @@ document.addEventListener('DOMContentLoaded', async function () {
             const chunk = (data.message || '').trim();
             if (!chunk) return;
 
-            // Fallback: set speaking status and STOP recording immediately when we receive transcription.
-            // Mic can pick up avatar's voice from speakers — stop before it gets transcribed as "user" input.
             if (!isAmySpeaking) {
                 isAmySpeaking = true;
-                updateVoiceStatus("Amy is speaking...", true);
-                if (webSpeechService.isAvailable()) webSpeechService.stop();
+                updateVoiceStatus("Iliana is speaking...", true);
+                if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
                 voiceInput.audioChunks = [];
             }
 
@@ -269,8 +250,11 @@ document.addEventListener('DOMContentLoaded', async function () {
                 const needsSpace = bufBefore.length > 0 && !/\s$/.test(bufBefore);
                 avatarResponseBuffer += (needsSpace ? ' ' : '') + chunk;
             }
-            // Don't display during speech — show message only when avatar finishes (avatar_stop_talking).
-            // Avoids text appearing before she's done speaking.
+            // Display text as it arrives (streaming / typing effect) while the avatar is speaking
+            if (bufBefore.length === 0) messages.clearCurrent();
+            messages.reset();
+            messages.append(avatarResponseBuffer);
+            messages.outputStreaming('message', 'message--bot');
             return;
         }
 
@@ -287,13 +271,9 @@ document.addEventListener('DOMContentLoaded', async function () {
             // Clearing here wipes the beginning of the message when speak_started fires late.
             // CRITICAL: Set flag FIRST, then stop recording
             isAmySpeaking = true;
-            updateVoiceStatus("Amy is speaking...", true);
+            updateVoiceStatus("Iliana is speaking...", true);
             
-            // CRITICAL: Stop recording immediately when avatar starts speaking
-            if (webSpeechService.isAvailable()) {
-                webSpeechService.stop();
-            }
-            // Clear any pending audio chunks to prevent processing
+            if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
             voiceInput.audioChunks = [];
             return;
         }
@@ -301,25 +281,21 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (data.type === 'avatar_stop_talking') {
             // CRITICAL: Reset flag FIRST
             isAmySpeaking = false;
+            lastAvatarSpeechEndTime = Date.now();
             updateVoiceStatus("Please speak", true);
 
-            // Display the full message only now (after she finishes speaking)
+            // Finalize the streaming message with deduplicated text (already shown while speaking)
             if (avatarResponseBuffer.trim()) {
                 let text = deduplicateAvatarMessage(avatarResponseBuffer.trim());
-                messages.clearCurrent();
+                messages.reset();
                 messages.append(text);
-                messages.output('message', 'message--bot');
+                messages.outputStreaming('message', 'message--bot');
                 sellEmbeddedApi.sendMessage(text, false).catch(() => {});
             }
             messages.finalizeStreaming('message', 'message--bot');
             avatarResponseBuffer = '';
 
-            // Wait a bit before resuming to ensure avatar is fully done
-            setTimeout(() => {
-                if (!isMuted && !isAmySpeaking && voiceInput.isActive() && !isProcessingAudio && webSpeechService.isAvailable()) {
-                    webSpeechService.start();
-                }
-            }, 500);
+            resumeListeningAfterAvatarStops();
             return;
         }
     }
@@ -371,17 +347,10 @@ document.addEventListener('DOMContentLoaded', async function () {
                 }
                 const level = (sum / dataArray.length) / 255;
                 
-                // Detect when avatar starts speaking (audio level increases)
                 if (level > 0.01 && lastLevel <= 0.01 && !isAmySpeaking) {
-                    // CRITICAL: Set flag FIRST, then stop recording
                     isAmySpeaking = true;
-                    updateVoiceStatus("Amy is speaking...", true);
-                    
-                    // CRITICAL: Stop recording immediately
-                    if (webSpeechService.isAvailable()) {
-                        webSpeechService.stop();
-                    }
-                    // Clear any pending audio chunks
+                    updateVoiceStatus("Iliana is speaking...", true);
+                    if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
                     voiceInput.audioChunks = [];
                     
                     // Ensure we start a new bot message for avatar speech
@@ -396,19 +365,10 @@ document.addEventListener('DOMContentLoaded', async function () {
                     
                     // Wait 500ms of silence before considering speech ended
                     if (silenceDuration > 500) {
-                        // CRITICAL: Reset flag FIRST
                         isAmySpeaking = false;
                         updateVoiceStatus("Please speak", true);
                         speakingStartTime = null;
                         avatar.onAvatarSpeechEnd?.();
-                        
-                        // Wait a bit before resuming recording
-                        setTimeout(() => {
-                            // Double-check flag is still false before resuming
-                            if (!isMuted && !isAmySpeaking && voiceInput.isActive() && !isProcessingAudio && webSpeechService.isAvailable()) {
-                                webSpeechService.start();
-                            }
-                        }, 500);
                     }
                 } else if (level > 0.01) {
                     speakingStartTime = null; // Reset silence timer
@@ -439,35 +399,60 @@ document.addEventListener('DOMContentLoaded', async function () {
         onDisconnect
     );
 
+    // Set speech handlers once so we can start recognition in user gesture on mobile (iOS requires that)
+    webSpeechService.onTranscript = (transcribedText) => {
+        if (!isSessionActive || !avatar) return;
+        if (isMuted || isProcessingAudio || isAmySpeaking) return;
+        // Ignore transcripts shortly after avatar stopped (mic picks up speaker echo, e.g. "shall we begin?")
+        if (Date.now() - lastAvatarSpeechEndTime < 1500) return;
+        if (!transcribedText || transcribedText.trim().length < 2) return;
+        isProcessingAudio = true;
+        updateVoiceStatus("Processing...", false);
+        const text = transcribedText.trim();
+        messages.clearCurrent();
+        messages.append(text);
+        messages.output('message', 'message--user');
+        sellEmbeddedApi.sendMessage(text, true).catch(() => {});
+        conversationHistory.push({ role: 'user', content: text });
+        avatar.sendText(text, "talk");
+        isProcessingAudio = false;
+    };
+    webSpeechService.onError = (error) => {
+        const msg = (error && error.message) ? error.message : "Microphone error";
+        updateVoiceStatus(msg, false);
+    };
+
+    // Single entry point to start speech recognition (mic listening)
+    function startSpeechRecognition() {
+        if (isMuted || isAmySpeaking || isProcessingAudio || !webSpeechService.isAvailable()) return;
+        if (!voiceInput.isMobileDevice && !voiceInput.isActive()) return;
+        try {
+            webSpeechService.start();
+        } catch (e) {}
+    }
+
+    // Single entry point to resume listening after avatar stops (500ms delay)
+    function resumeListeningAfterAvatarStops() {
+        setTimeout(() => startSpeechRecognition(), 500);
+    }
+
     // Avatar speech callbacks (WebSocket events)
     avatar.onAvatarSpeechStart = () => {
-        // CRITICAL: Set flag FIRST, then stop recording
         isAmySpeaking = true;
-        updateVoiceStatus("Amy is speaking...", true);
-        
-        // CRITICAL: Stop recording immediately when avatar starts speaking
-        if (webSpeechService.isAvailable()) {
+        updateVoiceStatus("Iliana is speaking...", true);
+        // On desktop we stop recognition when avatar speaks; on mobile we keep listening and ignore (restart often fails on iOS)
+        if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) {
             webSpeechService.stop();
         }
-        // Clear any pending audio chunks to prevent processing
         voiceInput.audioChunks = [];
-        
-        // Ensure we start a new bot message for avatar speech
         messages.clearCurrent();
     };
 
     avatar.onAvatarSpeechEnd = () => {
-        // CRITICAL: Reset flag FIRST
         isAmySpeaking = false;
+        lastAvatarSpeechEndTime = Date.now();
         updateVoiceStatus("Please speak", true);
-        
-        // Wait a bit before resuming to ensure avatar is fully done
-        setTimeout(() => {
-            // Double-check flag is still false before resuming
-            if (!isMuted && !isAmySpeaking && voiceInput.isActive() && !isProcessingAudio && webSpeechService.isAvailable()) {
-                webSpeechService.start();
-            }
-        }, 500);
+        if (!voiceInput.isMobileDevice) resumeListeningAfterAvatarStops();
     };
 
     // Track if intro has been sent to prevent duplicates
@@ -510,13 +495,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         // Start audio visualizer
         startAudioVisualizer();
 
-        // Do NOT start recording yet — avatar greets immediately; mic would capture her voice.
-        // Recording starts only after avatar_stop_talking.
-        // Show "Starting..." until avatar finishes; avoid "Please speak" while she's talking.
         if (isMuted) {
             updateVoiceStatus("Voice muted", true);
         } else {
-            updateVoiceStatus("Starting...", true);
+            updateVoiceStatus("Please speak", true);
+            // On desktop start recognition here (mic is ready). On mobile we already started in handleStart (same user gesture).
+            if (!voiceInput.isMobileDevice) startSpeechRecognition();
         }
 
         // Send intro only if configured (disabled by default - LiveAvatar/Petya provides the greeting)
@@ -577,56 +561,40 @@ document.addEventListener('DOMContentLoaded', async function () {
     });
 
 
-    // Mute button functionality - controls voice recording
-    if (muteBtn) {
-        muteBtn.addEventListener('click', async function () {
-            isMuted = !isMuted;
+    // Helper: attach handler to both click and touchend (mobile)
+    function addClickAndTouch(el, handler) {
+        if (!el) return;
+        el.addEventListener('click', handler);
+        el.addEventListener('touchend', function (e) {
+            handler(e);
+            e.preventDefault();
+        }, { passive: false });
+    }
 
+    // Mute button: toggle voice on/off (original functionality)
+    if (muteBtn) {
+        addClickAndTouch(muteBtn, function () {
+            isMuted = !isMuted;
             if (isMuted) {
-                // Mute: stop recording
                 muteBtn.classList.add('muted');
                 const muteText = document.getElementById('mute-button-text');
-                if (muteText) {
-                    muteText.textContent = 'Unmute Mic';
-                }
+                if (muteText) muteText.textContent = 'Unmute Mic';
                 const muteIcon = document.getElementById('mute-button-icon');
                 if (muteIcon) {
-                    muteIcon.innerHTML = `
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>
-            `;
+                    muteIcon.innerHTML = `<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>`;
                 }
                 updateVoiceStatus("Voice muted", false);
-                
-                // Stop recording
-                if (webSpeechService.isAvailable()) {
-                    webSpeechService.stop();
-                }
+                if (webSpeechService.isAvailable()) webSpeechService.stop();
             } else {
-                // Unmute: start recording
-                isMuted = false;
                 muteBtn.classList.remove('muted');
                 const muteText = document.getElementById('mute-button-text');
-                if (muteText) {
-                    muteText.textContent = 'Mute Mic';
-                }
+                if (muteText) muteText.textContent = 'Mute Mic';
                 const muteIcon = document.getElementById('mute-button-icon');
                 if (muteIcon) {
-                    muteIcon.innerHTML = `
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            `;
+                    muteIcon.innerHTML = `<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>`;
                 }
                 updateVoiceStatus("Please speak", true);
-                
-                // Start recording if session is active and not processing
-                if (isSessionActive && voiceInput.isActive() && !isProcessingAudio && !isAmySpeaking) {
-                    try {
-                        if (webSpeechService.isAvailable()) webSpeechService.start();
-                    } catch (error) {
-                        // Silent error handling
-                    }
-                }
+                startSpeechRecognition();
             }
         });
     }
@@ -708,6 +676,21 @@ document.addEventListener('DOMContentLoaded', async function () {
         return text;
     }
 
+    // Turn mic/getUserMedia errors into messages that explain why the prompt might not show
+    function getMicErrorMessage(error) {
+        if (!error) return '';
+        const msg = (error.message && String(error.message)) || '';
+        const name = (error.name && String(error.name)) || '';
+        if (typeof window !== 'undefined' && !window.isSecureContext) {
+            return 'Microphone requires HTTPS. Open this site via https:// to see the permission prompt.';
+        }
+        if (name === 'NotAllowedError' || /permission denied|not allowed|denied/i.test(msg)) {
+            return 'Microphone blocked. Allow microphone for this site in your browser or device settings, then reload and try again.';
+        }
+        if (/https|secure|getusermedia/i.test(msg)) return msg;
+        return msg || 'Microphone access failed. Use HTTPS and allow microphone when prompted.';
+    }
+
     // Voice status update function
     function updateVoiceStatus(message, isActive) {
         const voiceStatus = document.getElementById('voice-status');
@@ -720,9 +703,11 @@ document.addEventListener('DOMContentLoaded', async function () {
         const statusText = document.getElementById('voice-status-text');
         const indicator = document.getElementById('voice-indicator');
 
+        const hasMessage = (message && String(message).trim());
         if (statusText) {
-            statusText.textContent = (message && String(message).trim()) || 'Please speak';
+            statusText.textContent = hasMessage || 'Please speak';
         }
+        voiceStatus.classList.toggle('show', !!hasMessage);
 
         if (isActive) {
             voiceStatus.classList.add('active');
@@ -777,31 +762,62 @@ document.addEventListener('DOMContentLoaded', async function () {
             btn.style.border = '';
         }, 2000);
         
-        // ULTRA SIMPLE: Just make the button work - use direct onclick assignment
-        btn.onclick = async function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (isSessionStarting) {
-                return false;
+        // Run session start (used by both click and touch). On mobile, start mic in same sync turn as tap so getUserMedia has user gesture.
+        async function handleStart(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
             }
-            
+            if (isSessionStarting) return;
             isSessionStarting = true;
             btn.disabled = true;
-            
+
+            // Show loading state immediately so user sees feedback (especially on mobile)
+            if (container) {
+                container.classList.add('open', 'is-loading');
+            }
+
+            // On mobile: do NOT use getUserMedia so Web Speech API has exclusive mic access (iOS
+            // often returns no results when another consumer holds the mic). Start recognition in same user gesture.
+            let micPromise = null;
+            if (voiceInput.isMobileDevice) {
+                if (webSpeechService.isAvailable() && !isMuted) {
+                    try { webSpeechService.start(); } catch (err) { /* start in same gesture */ }
+                }
+            }
+
             try {
-                await startFreshSession();
+                await startFreshSession(micPromise);
             } catch (error) {
                 if (container) {
                     container.classList.remove('is-loading');
+                    container.classList.add('open'); // keep panel open so user can see error
                 }
                 isSessionStarting = false;
                 btn.disabled = false;
-                
-                // Clean up voice input on error
                 voiceInput.cleanup();
+                webSpeechService.cleanup();
+                const msg = getMicErrorMessage(error) || (error && error.message) || 'Failed to start';
+                updateVoiceStatus(msg, false);
             }
-        };
+        }
+
+        // On mobile use touchend so the full tap counts as user gesture (iOS/Safari often only show mic prompt for "complete" tap)
+        if (voiceInput.isMobileDevice) {
+            btn.addEventListener('touchstart', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (isSessionStarting) return;
+                if (container) container.classList.add('open', 'is-loading');
+            }, { passive: false });
+            btn.addEventListener('touchend', function (e) {
+                handleStart(e);
+                e.preventDefault();
+                e.stopPropagation();
+            }, { passive: false });
+        } else {
+            btn.onclick = (e) => { handleStart(e); };
+        }
         
         return true;
     }
@@ -834,12 +850,25 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
-    // Close button functionality - Direct close
+    // Close button - use both click and touchend so it works on mobile
+    async function handleClose(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        container.classList.remove('open', 'is-loading');
+        if (startBtn) {
+            startBtn.disabled = false;
+        }
+        isSessionStarting = false;
+        await gracefullyCloseActiveSession();
+    }
     if (closeBtn) {
-        closeBtn.addEventListener('click', async function () {
-            await gracefullyCloseActiveSession();
-        });
-    } else {
+        closeBtn.addEventListener('click', handleClose);
+        closeBtn.addEventListener('touchend', function (e) {
+            handleClose(e);
+            e.preventDefault();
+        }, { passive: false });
     }
 
     if (form) {
@@ -957,13 +986,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     // Toggle info message on click
     const chatInfoIcon = document.getElementById('chat-info-icon');
     const chatboxControls = document.getElementById('chatbox-controls');
-    
+
     if (chatInfoIcon && chatboxControls) {
         chatInfoIcon.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            // Toggle the 'showing-info' class on the controls container
-            // CSS handles the visibility switching
             chatboxControls.classList.toggle('showing-info');
         });
     }
@@ -991,6 +1018,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
     } catch (error) {
-        // Silent error handling
+        // Init error (logging removed)
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initChatbot);
+} else {
+    initChatbot();
+}

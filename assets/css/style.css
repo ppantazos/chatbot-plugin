@@ -601,6 +601,9 @@
     transition: all 0.2s ease;
     backdrop-filter: blur(10px);
     z-index: 10;
+    pointer-events: auto;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 #close-button:hover {
@@ -656,7 +659,8 @@
     border-top: 1px solid rgba(16, 185, 129, 0.2);
 }
 
-.voice-status.active {
+.voice-status.active,
+.voice-status.show {
     display: flex;
 }
 

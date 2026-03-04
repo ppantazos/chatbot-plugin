@@ -35,16 +35,39 @@ export class VoiceInput {
             if (existingStream && existingStream.active) {
                 this.audioStream = existingStream;
             } else {
-                // Request new microphone access
-                // On mobile, this MUST be called within a user gesture
-                this.audioStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        sampleRate: 16000
+                // getUserMedia only works in secure contexts (HTTPS or localhost). Without it the prompt never shows.
+                if (typeof window !== 'undefined' && !window.isSecureContext) {
+                    throw new Error('Microphone requires HTTPS. Please open this site via https://');
+                }
+                if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+                    throw new Error('Microphone not supported in this browser');
+                }
+                // On mobile use echo cancellation so the visualizer and system get real voice, not speaker feedback.
+                const constraints = this.isMobileDevice
+                    ? {
+                        audio: {
+                            echoCancellation: { ideal: true },
+                            noiseSuppression: { ideal: true },
+                            autoGainControl: { ideal: true }
+                        }
                     }
-                });
+                    : {
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 16000
+                        }
+                    };
+                try {
+                    this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (e) {
+                    if (this.isMobileDevice) {
+                        this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    } else {
+                        throw e;
+                    }
+                }
             }
 
             // Ensure all tracks are enabled
