@@ -2,7 +2,7 @@
 
 ## 1. Petya integration overview
 
-- The chatbot calls Petya **directly** at `https://app.sellembedded.com/api/v1`.
+- The chatbot calls Petya **directly** at `https://app.ilianaai.com/api/v1`.
 - All Petya calls (config, visitors, conversations, messages) go from the plugin to Petya.
 - **No message proxy via ilianaaiAvatar.**
 
@@ -11,7 +11,7 @@
 ## 2. What the plugin does
 
 - **API key:** Uses the Petya API key from plugin settings.
-- **sendMessage:** Posts to `POST https://app.sellembedded.com/api/v1/messages/userMessages/init` with:
+- **sendMessage:** Posts to `POST https://app.ilianaai.com/api/v1/messages/userMessages/init` with:
   - `Authorization: Bearer <api-key>`
   - Body: `{ conversationId, isFromUser, content }`
 
@@ -21,10 +21,10 @@
 
 - Petya API key in plugin settings.
 - **Petya API Base URL** in plugin settings:
-  - **Production** (default): `https://app.sellembedded.com/api/v1` – messages go to production MongoDB.
+  - **Production** (default): `https://app.ilianaai.com/api/v1` – messages go to production MongoDB.
   - **Local**: `http://localhost:5000/api/v1` – messages go to local MongoDB (run Petya with `npm run dev`).
 - CORS configured for the chatbot origin.
-- API key must match a Petya account (e.g. `SE_5799564546777614`).
+- API key must match a Petya account (e.g. `SE_********`).
 
 ---
 

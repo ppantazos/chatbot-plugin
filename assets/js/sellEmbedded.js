@@ -5,11 +5,11 @@ export class SellEmbedded
     visitorId = null;
 
     /**
-     * @param {string} apiKey - Petya/Sell Embedded API key (per-tenant, from plugin settings)
+     * @param {string} apiKey - Petya/Iliana AI API key (per-tenant, from plugin settings)
      * @param {{ serverUrl?: string }} [options] - serverUrl overrides Petya API base (e.g. http://localhost:5000/api/v1 for local)
      */
     constructor(apiKey, options = {}) {
-        this.serverUrl = (options.serverUrl || "https://app.sellembedded.com/api/v1").replace(/\/$/, '');
+        this.serverUrl = (options.serverUrl || "https://app.ilianaai.com/api/v1").replace(/\/$/, '');
         this.apiKey = apiKey;
     }
 

@@ -2,7 +2,6 @@ export class Config
 {
     config = {};
     handler = '';
-    openaiApiKey = '';
 
     constructor(handler) {
         this.handler = handler;
@@ -23,9 +22,5 @@ export class Config
 
     fetch() {
         return this.config;
-    }
-
-    getOpenAIApiKey() {
-        return this.openaiApiKey;
     }
 }
