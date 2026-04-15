@@ -5,6 +5,31 @@ export class SellEmbedded
     visitorId = null;
 
     /**
+     * Default fetch options so the browser sends Origin (CORS) and a sensible Referer policy;
+     * Petya and proxies can match Allowed Domains from Origin / Referer.
+     * @returns {{ mode: string, credentials: string, referrerPolicy: string }}
+     */
+    static get browserIdentityFetchDefaults() {
+        return {
+            mode: 'cors',
+            credentials: 'omit',
+            referrerPolicy: 'strict-origin-when-cross-origin',
+        };
+    }
+
+    /** Headers accepted by Petya apiKeyAuth (Bearer and/or X-API-KEY). */
+    _ilianaAIAPIKeyAuthHeaders() {
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (this.apiKey) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+            headers['X-API-KEY'] = this.apiKey;
+        }
+        return headers;
+    }
+
+    /**
      * @param {string} apiKey - Petya/Iliana AI API key (per-tenant, from plugin settings)
      * @param {{ serverUrl?: string }} [options] - serverUrl overrides Petya API base (e.g. http://localhost:5000/api/v1 for local)
      */
@@ -17,12 +42,9 @@ export class SellEmbedded
         const response = await fetch(
             `${this.serverUrl}/conversations/userConversation/init`,
             {
-                method: "POST",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'POST',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
                 body: JSON.stringify({
                     visitorId: this.visitorId,
                 }),
@@ -47,12 +69,9 @@ export class SellEmbedded
         await fetch(
             `${this.serverUrl}/conversations/userConversation/${this.conversationId}/status`,
             {
-                method: "PATCH",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'PATCH',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
                 body: JSON.stringify({
                     status: 'completed'
                 }),
@@ -81,12 +100,9 @@ export class SellEmbedded
         const response = await fetch(
             `${this.serverUrl}/messages/userMessages/init`,
             {
-                method: "POST",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'POST',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
                 body: JSON.stringify(payload),
             }
         );
@@ -103,12 +119,9 @@ export class SellEmbedded
         const response = await fetch(
             `${this.serverUrl}/visitors/init`,
             {
-                method: "POST",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'POST',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
                 body: JSON.stringify({
                     ip,
                     location,
@@ -132,12 +145,9 @@ export class SellEmbedded
         await fetch(
             `${this.serverUrl}/visitors/${visitorId}/talkedToChat`,
             {
-                method: "PATCH",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'PATCH',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
                 body: JSON.stringify({
                     talkedToChat,
                 }),
@@ -149,12 +159,9 @@ export class SellEmbedded
         const response = await fetch(
             `${this.serverUrl}/account/config`,
             {
-                method: "GET",
-                mode: "cors",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.apiKey}`,
-                },
+                method: 'GET',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers: this._ilianaAIAPIKeyAuthHeaders(),
             }
         );
 

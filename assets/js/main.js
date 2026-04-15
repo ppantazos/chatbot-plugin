@@ -52,7 +52,7 @@ async function initChatbot() {
     const mediaStream = new MediaStream();
     const messages = new Messages(history)
     const sellEmbeddedApi = new SellEmbedded(sellEmbeddedConfig.apiKey, {
-        serverUrl: sellEmbeddedConfig.petyaApiUrl || undefined,
+        serverUrl: sellEmbeddedConfig.ilianaAIAPIUrl || undefined,
     });
     
     // Initialize Voice Input (single point of truth)
@@ -63,6 +63,8 @@ async function initChatbot() {
     const DEFAULT_INTRO = "Hello and welcome. How can I help you today?";
     const API_CONFIG = {
         serverUrl: sellEmbeddedConfig.avatarProxyUrl || "https://avatar.ilianaai.com",
+        /** Same Iliana AI SE_ key as SellEmbedded; sent as X-API-KEY on avatar proxy requests for Allowed Domains checks. */
+        ilianaAIAPIKey: sellEmbeddedConfig.apiKey || null,
         avatarId: DEFAULT_AVATAR_ID,
         knowledgeBaseId: null,
         contextId: null,
@@ -86,7 +88,7 @@ async function initChatbot() {
     let isAmySpeaking = false;
     let lastAvatarSpeechEndTime = 0;
 
-    // Buffer to accumulate avatar response text for persisting to Petya
+    // Buffer to accumulate avatar response text for persisting to Iliana AI
     let avatarResponseBuffer = '';
 
     /**
@@ -258,7 +260,7 @@ async function initChatbot() {
             return;
         }
 
-        // LiveAvatar user.transcription — do NOT send to Petya here.
+        // LiveAvatar user.transcription — do NOT send to Iliana AI here.
         // We already send user messages from webSpeechService.onTranscript (voice) and form submit (text).
         // Sending here would duplicate, since we send to avatar via sendText and LiveAvatar may echo.
         if (data.type === 'user_transcription') {
@@ -503,7 +505,7 @@ async function initChatbot() {
             if (!voiceInput.isMobileDevice) startSpeechRecognition();
         }
 
-        // Send intro only if configured (disabled by default - LiveAvatar/Petya provides the greeting)
+        // Send intro only if configured (disabled by default - LiveAvatar/Iliana AI provides the greeting)
         const sendIntro = sellEmbeddedConfig.sendIntro === true;
         if (sendIntro && !introSent) {
             introSent = true;

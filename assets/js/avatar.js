@@ -38,6 +38,32 @@ export class Avatar
         return this.config.serverUrl?.replace(/\/$/, '') || '';
     }
 
+    /**
+     * Same defaults as SellEmbedded: CORS + Referer policy so Origin/Referer reach the proxy (ilianaaiAvatar petyaOriginGate).
+     * When config.petyaApiKey is set (SE_…), sends X-API-KEY so allowed-domains apply alongside LiveAvatar session Bearer.
+     */
+    _proxyFetchInit({ method = 'GET', headers = {}, body = undefined } = {}) {
+        const merged = {
+            'Content-Type': 'application/json',
+            ...headers,
+        };
+        const tenantKey = this.config.petyaApiKey;
+        if (tenantKey && typeof tenantKey === 'string' && /^SE_\d{16}$/.test(tenantKey.trim())) {
+            merged['X-API-KEY'] = tenantKey.trim();
+        }
+        const init = {
+            method,
+            mode: 'cors',
+            credentials: 'omit',
+            referrerPolicy: 'strict-origin-when-cross-origin',
+            headers: merged,
+        };
+        if (body !== undefined) {
+            init.body = body;
+        }
+        return init;
+    }
+
     async getSessionToken() {
         const payload = {
             avatar_id: this.config.avatarId,
@@ -46,11 +72,10 @@ export class Avatar
             language: 'en',
         };
 
-        const response = await fetch(`${this.baseUrl}/api/sessions/token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
+        const response = await fetch(
+            `${this.baseUrl}/api/sessions/token`,
+            this._proxyFetchInit({ method: 'POST', body: JSON.stringify(payload) })
+        );
 
         const data = await response.json();
         if (!response.ok) {
@@ -122,13 +147,15 @@ export class Avatar
         }
         await new Promise(r => setTimeout(r, 300));
 
-        const response = await fetch(`${this.baseUrl}/api/sessions/start`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.sessionToken}`,
-            },
-        });
+        const response = await fetch(
+            `${this.baseUrl}/api/sessions/start`,
+            this._proxyFetchInit({
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${this.sessionToken}`,
+                },
+            })
+        );
 
         const data = await response.json();
         if (!response.ok) {
@@ -203,14 +230,16 @@ export class Avatar
             return;
         }
         try {
-            await fetch(`${this.baseUrl}/api/sessions/keep-alive`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.sessionToken}`,
-                },
-                body: JSON.stringify({ session_id: this.sessionInfo.session_id }),
-            });
+            await fetch(
+                `${this.baseUrl}/api/sessions/keep-alive`,
+                this._proxyFetchInit({
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${this.sessionToken}`,
+                    },
+                    body: JSON.stringify({ session_id: this.sessionInfo.session_id }),
+                })
+            );
         } catch (error) {
             // Silent error handling
         }
@@ -223,14 +252,16 @@ export class Avatar
 
         try {
             if (this.sessionToken) {
-                await fetch(`${this.baseUrl}/api/sessions/stop`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${this.sessionToken}`,
-                    },
-                    body: JSON.stringify({ session_id: this.sessionInfo.session_id }),
-                });
+                await fetch(
+                    `${this.baseUrl}/api/sessions/stop`,
+                    this._proxyFetchInit({
+                        method: 'POST',
+                        headers: {
+                            Authorization: `Bearer ${this.sessionToken}`,
+                        },
+                        body: JSON.stringify({ session_id: this.sessionInfo.session_id }),
+                    })
+                );
             }
         } catch (error) {
             // Silent error handling
