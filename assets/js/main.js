@@ -32,6 +32,12 @@ async function initChatbot() {
     const container = document.getElementById('chatbox');
     const mediaElement = document.getElementById('mediaElement');
     const closeBtn = document.getElementById('close-button');
+    function setCloseButtonEnabled(enabled) {
+        if (!closeBtn) return;
+        closeBtn.disabled = !enabled;
+        closeBtn.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    }
+    setCloseButtonEnabled(false);
     const taskInput = document.getElementById('task');
     const history = document.getElementById('chatbox-history');
     const form = document.getElementById('chatbox-form');
@@ -58,7 +64,30 @@ async function initChatbot() {
     // Initialize Voice Input (single point of truth)
     const voiceInput = new VoiceInput();
     const webSpeechService = new WebSpeechService();
-    
+    /** Firefox (and others): no SpeechRecognition — use MediaRecorder + server Whisper instead */
+    const useRecorderVoiceInput = !voiceInput.isMobileDevice && !webSpeechService.isAvailable();
+    let recorderVoiceCycleGen = 0;
+
+    function scheduleRecorderVoiceListen(delay) {
+        if (!useRecorderVoiceInput) return;
+        const gen = recorderVoiceCycleGen;
+        setTimeout(() => {
+            if (gen !== recorderVoiceCycleGen) return;
+            tryStartRecorderVoicePass().catch(() => {});
+        }, delay);
+    }
+
+    function tryStartRecorderVoicePass() {
+        if (!useRecorderVoiceInput || !isSessionActive || isMuted || isAmySpeaking || isProcessingAudio) {
+            return Promise.resolve();
+        }
+        if (!voiceInput.isActive()) return Promise.resolve();
+        if (voiceInput.isRecording) return Promise.resolve();
+        return voiceInput.startRecording(0.006, 1200).catch(() => {
+            scheduleRecorderVoiceListen(800);
+        });
+    }
+
     const DEFAULT_AVATAR_ID = null; // LiveAvatar requires UUID; set via account config (avatarId)
     const DEFAULT_INTRO = "Hello and welcome. How can I help you today?";
     const API_CONFIG = {
@@ -113,6 +142,7 @@ async function initChatbot() {
         if (container) {
             container.classList.add('open', 'is-loading');
         }
+        setCloseButtonEnabled(false);
 
         try {
             // Initialize voice input (mic for visualizer) only on desktop; on mobile we leave mic to Web Speech API only
@@ -229,7 +259,10 @@ async function initChatbot() {
             if (!isAmySpeaking) {
                 isAmySpeaking = true;
                 updateVoiceStatus("Iliana is speaking...", true);
-                if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
+                if (!voiceInput.isMobileDevice) {
+                    if (webSpeechService.isAvailable()) webSpeechService.stop();
+                    voiceInput.abortRecording();
+                }
                 voiceInput.audioChunks = [];
             }
 
@@ -275,7 +308,10 @@ async function initChatbot() {
             isAmySpeaking = true;
             updateVoiceStatus("Iliana is speaking...", true);
             
-            if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
+            if (!voiceInput.isMobileDevice) {
+                if (webSpeechService.isAvailable()) webSpeechService.stop();
+                voiceInput.abortRecording();
+            }
             voiceInput.audioChunks = [];
             return;
         }
@@ -352,7 +388,10 @@ async function initChatbot() {
                 if (level > 0.01 && lastLevel <= 0.01 && !isAmySpeaking) {
                     isAmySpeaking = true;
                     updateVoiceStatus("Iliana is speaking...", true);
-                    if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) webSpeechService.stop();
+                    if (!voiceInput.isMobileDevice) {
+                        if (webSpeechService.isAvailable()) webSpeechService.stop();
+                        voiceInput.abortRecording();
+                    }
                     voiceInput.audioChunks = [];
                     
                     // Ensure we start a new bot message for avatar speech
@@ -401,11 +440,9 @@ async function initChatbot() {
         onDisconnect
     );
 
-    // Set speech handlers once so we can start recognition in user gesture on mobile (iOS requires that)
-    webSpeechService.onTranscript = (transcribedText) => {
+    function submitUserVoiceText(transcribedText) {
         if (!isSessionActive || !avatar) return;
         if (isMuted || isProcessingAudio || isAmySpeaking) return;
-        // Ignore transcripts shortly after avatar stopped (mic picks up speaker echo, e.g. "shall we begin?")
         if (Date.now() - lastAvatarSpeechEndTime < 1500) return;
         if (!transcribedText || transcribedText.trim().length < 2) return;
         isProcessingAudio = true;
@@ -418,11 +455,52 @@ async function initChatbot() {
         conversationHistory.push({ role: 'user', content: text });
         avatar.sendText(text, "talk");
         isProcessingAudio = false;
+    }
+
+    // Set speech handlers once so we can start recognition in user gesture on mobile (iOS requires that)
+    webSpeechService.onTranscript = (transcribedText) => {
+        submitUserVoiceText(transcribedText);
     };
     webSpeechService.onError = (error) => {
         const msg = (error && error.message) ? error.message : "Microphone error";
         updateVoiceStatus(msg, false);
     };
+
+    if (useRecorderVoiceInput) {
+        voiceInput.onRecordingComplete = async (blob) => {
+            if (!useRecorderVoiceInput || !isSessionActive) return;
+            if (isMuted || isAmySpeaking) {
+                scheduleRecorderVoiceListen(400);
+                return;
+            }
+            if (!blob || blob.size < 200) {
+                scheduleRecorderVoiceListen(150);
+                return;
+            }
+            if (Date.now() - lastAvatarSpeechEndTime < 1500) {
+                scheduleRecorderVoiceListen(400);
+                return;
+            }
+            updateVoiceStatus("Processing...", false);
+            try {
+                const text = await sellEmbeddedApi.transcribeAudio(blob);
+                submitUserVoiceText(text);
+            } catch (err) {
+                const hint = (err && err.message) ? String(err.message) : 'Transcription failed';
+                updateVoiceStatus(
+                    /not configured|503|Voice transcription is not configured/i.test(hint)
+                        ? 'Voice typing is not available on this server yet. Type your message or use Chrome or Edge.'
+                        : 'Could not transcribe audio. Try again or type your message.',
+                    false
+                );
+            } finally {
+                if (isSessionActive && !isMuted && !isAmySpeaking) {
+                    updateVoiceStatus("Please speak", true);
+                }
+                scheduleRecorderVoiceListen(300);
+            }
+        };
+    }
 
     // Single entry point to start speech recognition (mic listening)
     function startSpeechRecognition() {
@@ -435,16 +513,22 @@ async function initChatbot() {
 
     // Single entry point to resume listening after avatar stops (500ms delay)
     function resumeListeningAfterAvatarStops() {
-        setTimeout(() => startSpeechRecognition(), 500);
+        setTimeout(() => {
+            if (webSpeechService.isAvailable()) {
+                startSpeechRecognition();
+            } else if (useRecorderVoiceInput) {
+                scheduleRecorderVoiceListen(0);
+            }
+        }, 500);
     }
 
     // Avatar speech callbacks (WebSocket events)
     avatar.onAvatarSpeechStart = () => {
         isAmySpeaking = true;
         updateVoiceStatus("Iliana is speaking...", true);
-        // On desktop we stop recognition when avatar speaks; on mobile we keep listening and ignore (restart often fails on iOS)
-        if (!voiceInput.isMobileDevice && webSpeechService.isAvailable()) {
-            webSpeechService.stop();
+        if (!voiceInput.isMobileDevice) {
+            if (webSpeechService.isAvailable()) webSpeechService.stop();
+            voiceInput.abortRecording();
         }
         voiceInput.audioChunks = [];
         messages.clearCurrent();
@@ -481,6 +565,8 @@ async function initChatbot() {
             startBtn.style.opacity = '1';
         }
 
+        setCloseButtonEnabled(true);
+
         container.classList.remove('is-loading');
 
         // On mobile, ensure audio context is resumed (required for audio playback)
@@ -501,8 +587,14 @@ async function initChatbot() {
             updateVoiceStatus("Voice muted", true);
         } else {
             updateVoiceStatus("Please speak", true);
-            // On desktop start recognition here (mic is ready). On mobile we already started in handleStart (same user gesture).
-            if (!voiceInput.isMobileDevice) startSpeechRecognition();
+            // On desktop: Web Speech (Chrome/Edge) or MediaRecorder + Whisper (Firefox).
+            if (!voiceInput.isMobileDevice) {
+                if (webSpeechService.isAvailable()) {
+                    startSpeechRecognition();
+                } else if (useRecorderVoiceInput) {
+                    scheduleRecorderVoiceListen(400);
+                }
+            }
         }
 
         // Send intro only if configured (disabled by default - LiveAvatar/Iliana AI provides the greeting)
@@ -517,6 +609,7 @@ async function initChatbot() {
     });
 
     document.addEventListener('streamSessionClosed', () => {
+        recorderVoiceCycleGen += 1;
         isSessionActive = false;
         isSessionStarting = false;
         avatarResponseBuffer = '';
@@ -529,6 +622,8 @@ async function initChatbot() {
             startBtn.disabled = false;
             startBtn.style.opacity = '1';
         }
+
+        setCloseButtonEnabled(false);
 
         if (mediaElement) {
             mediaElement.srcObject = null;
@@ -587,6 +682,7 @@ async function initChatbot() {
                 }
                 updateVoiceStatus("Voice muted", false);
                 if (webSpeechService.isAvailable()) webSpeechService.stop();
+                voiceInput.abortRecording();
             } else {
                 muteBtn.classList.remove('muted');
                 const muteText = document.getElementById('mute-button-text');
@@ -596,7 +692,11 @@ async function initChatbot() {
                     muteIcon.innerHTML = `<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>`;
                 }
                 updateVoiceStatus("Please speak", true);
-                startSpeechRecognition();
+                if (webSpeechService.isAvailable()) {
+                    startSpeechRecognition();
+                } else if (useRecorderVoiceInput) {
+                    scheduleRecorderVoiceListen(0);
+                }
             }
         });
     }
@@ -778,6 +878,7 @@ async function initChatbot() {
             if (container) {
                 container.classList.add('open', 'is-loading');
             }
+            setCloseButtonEnabled(false);
 
             // On mobile: do NOT use getUserMedia so Web Speech API has exclusive mic access (iOS
             // often returns no results when another consumer holds the mic). Start recognition in same user gesture.
@@ -795,6 +896,7 @@ async function initChatbot() {
                     container.classList.remove('is-loading');
                     container.classList.add('open'); // keep panel open so user can see error
                 }
+                setCloseButtonEnabled(true);
                 isSessionStarting = false;
                 btn.disabled = false;
                 voiceInput.cleanup();
@@ -811,6 +913,7 @@ async function initChatbot() {
                 e.stopPropagation();
                 if (isSessionStarting) return;
                 if (container) container.classList.add('open', 'is-loading');
+                setCloseButtonEnabled(false);
             }, { passive: false });
             btn.addEventListener('touchend', function (e) {
                 handleStart(e);
@@ -854,6 +957,7 @@ async function initChatbot() {
 
     // Close button - use both click and touchend so it works on mobile
     async function handleClose(e) {
+        if (closeBtn && closeBtn.disabled) return;
         if (e) {
             e.preventDefault();
             e.stopPropagation();

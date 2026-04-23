@@ -52,11 +52,11 @@ export class VoiceInput {
                         }
                     }
                     : {
+                        // Omit exact sampleRate — Firefox may reject OverconstrainedError while Chrome ignores.
                         audio: {
                             echoCancellation: true,
                             noiseSuppression: true,
                             autoGainControl: true,
-                            sampleRate: 16000
                         }
                     };
                 try {
@@ -115,15 +115,19 @@ export class VoiceInput {
 
         try {
             this.audioChunks = [];
-            // Try to use the best available MIME type
-            let mimeType = 'audio/webm;codecs=opus';
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'audio/webm';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/mp4';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = ''; // Use default
-                    }
+            // Prefer WebM/Opus (Chrome); Firefox typically records Ogg/Opus.
+            const mimeCandidates = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/ogg',
+                'audio/mp4',
+            ];
+            let mimeType = '';
+            for (const c of mimeCandidates) {
+                if (MediaRecorder.isTypeSupported(c)) {
+                    mimeType = c;
+                    break;
                 }
             }
             
@@ -225,6 +229,33 @@ export class VoiceInput {
         // This is now handled directly in the silence detection interval
     }
 
+    /**
+     * Stop recording without firing onRecordingComplete (avatar spoke, session reset, etc.)
+     */
+    abortRecording() {
+        if (this.silenceCheckInterval) {
+            clearInterval(this.silenceCheckInterval);
+            this.silenceCheckInterval = null;
+        }
+        if (this.speechTimeout) {
+            clearTimeout(this.speechTimeout);
+            this.speechTimeout = null;
+        }
+        const mr = this.mediaRecorder;
+        if (mr && mr.state === 'recording') {
+            mr.ondataavailable = null;
+            mr.onstop = () => {};
+            try {
+                mr.stop();
+            } catch (e) {
+                // ignore
+            }
+        }
+        this.mediaRecorder = null;
+        this.isRecording = false;
+        this.audioChunks = [];
+    }
+
     async stopRecording() {
         if (!this.isRecording || !this.mediaRecorder) {
             return null;
@@ -298,15 +329,9 @@ export class VoiceInput {
      * Cleanup resources
      */
     cleanup() {
-        // Stop recording if active
+        // Stop recording without notifying consumers (session teardown)
         if (this.isRecording && this.mediaRecorder) {
-            try {
-                if (this.mediaRecorder.state === 'recording') {
-                    this.mediaRecorder.stop();
-                }
-            } catch (e) {
-                // Ignore errors during cleanup
-            }
+            this.abortRecording();
         }
         
         // Clear silence detection interval

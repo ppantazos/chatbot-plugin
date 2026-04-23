@@ -81,6 +81,52 @@ export class SellEmbedded
         this.conversationId = null;
     }
 
+    /**
+     * Transcribe a voice recording (browsers without Web Speech API, e.g. Firefox).
+     * POST multipart field "audio" to Petya Whisper endpoint.
+     * @param {Blob} audioBlob
+     * @returns {Promise<string>} transcript text
+     */
+    async transcribeAudio(audioBlob) {
+        if (!audioBlob || typeof audioBlob.size !== 'number' || audioBlob.size < 1) {
+            throw new Error('No audio data to transcribe');
+        }
+        const mime = audioBlob.type || 'audio/webm';
+        let ext = 'webm';
+        if (mime.includes('ogg')) ext = 'ogg';
+        else if (mime.includes('mp4') || mime.includes('m4a')) ext = 'm4a';
+        else if (mime.includes('wav')) ext = 'wav';
+
+        const form = new FormData();
+        form.append('audio', audioBlob, `recording.${ext}`);
+
+        const headers = {};
+        if (this.apiKey) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+            headers['X-API-KEY'] = this.apiKey;
+        }
+
+        const response = await fetch(
+            `${this.serverUrl}/messages/userMessages/transcribe`,
+            {
+                method: 'POST',
+                ...SellEmbedded.browserIdentityFetchDefaults,
+                headers,
+                body: form,
+            }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const msg = data?.message || data?.error || `Transcription failed (${response.status})`;
+            throw new Error(msg);
+        }
+        if (!data.success || typeof data.data?.text !== 'string') {
+            throw new Error(data?.message || 'Invalid transcription response');
+        }
+        return data.data.text;
+    }
+
     async sendMessage(content, isFromUser) {
         if (!this.conversationId) {
             console.warn('[SellEmbedded] sendMessage skipped: no conversationId');

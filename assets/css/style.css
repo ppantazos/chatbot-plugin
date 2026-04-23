@@ -611,6 +611,17 @@
     transform: scale(1.1);
 }
 
+#close-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+#close-button:disabled:hover {
+    background: rgba(0, 0, 0, 0.6);
+    transform: none;
+}
+
 /* Conversation Area */
 #chatbox-history {
     flex: 1;
